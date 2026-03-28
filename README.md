@@ -3,6 +3,7 @@
 Real-time face recognition optimised for Apple Silicon. Assigns names to faces and improves accuracy the more it sees each person.
 
 Built with MTCNN detection, FaceNet (VGGFace2) embeddings, Kalman tracking, and optional YOLOv8 object detection. All inference runs on-device via MPS.
+<img width="2292" height="1281" alt="Screenshot 2026-03-28 at 12 49 59 PM" src="https://github.com/user-attachments/assets/5fab499f-d079-42f1-b9af-27a00ccd11de" />
 
 ## Requirements
 
@@ -45,6 +46,7 @@ python main.py delete "Alice"
 
 | Key | Action |
 |-----|--------|
+
 | `A` | Label the largest face in frame |
 | `O` | Toggle object detection (YOLOv8) |
 | `S` | Save database |
