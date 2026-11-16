@@ -1,0 +1,5 @@
+build/
+Tools/.convert/
+FaceRec/Models/*.mlpackage
+.DS_Store
+xcuserdata/

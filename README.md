@@ -1,5 +1,8 @@
 # FaceRec
 
+> **New: native Mac app.** [`FaceRecApp/`](FaceRecApp/) is a Swift rewrite that draws video with Metal and runs both neural networks on the Apple Neural Engine through Core ML. It adds continuous, angle-aware learning, camera resolution and frame-rate control, and a redesigned interface. See [FaceRecApp/README.md](FaceRecApp/README.md). The original Python app below is unchanged.
+
+
 Real-time face recognition optimised for Apple Silicon. Assigns names to faces and improves accuracy the more it sees each person.
 
 Built with MTCNN detection, FaceNet (VGGFace2) embeddings, Kalman tracking, and optional YOLOv8 object detection. All inference runs on-device via MPS.
