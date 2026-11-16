@@ -20,7 +20,7 @@ struct ContentView: View {
             } else {
                 VStack(spacing: 14) {
                     ProgressView().controlSize(.large)
-                    Text("Preparing the neural networks…").font(.headline)
+                    Text(model.startupMessage).font(.headline).monospacedDigit()
                     Text("The first launch takes a little longer.").font(.callout).foregroundStyle(.secondary)
                 }
             }
@@ -40,6 +40,7 @@ struct ContentView: View {
                 } else if model.engine != nil {
                     NamingHint(model: model.status).transition(.opacity)
                 }
+                UpdateCapsule(updater: Updater.shared)
             }
             .padding(.bottom, 18)
         }
@@ -123,6 +124,10 @@ struct ContentView: View {
                 Button("Identify a Photo…", systemImage: "text.viewfinder") { model.identifyPhoto() }
                 Divider()
                 Button("Save Database", systemImage: "square.and.arrow.down") { model.save() }
+                Divider()
+                Button("Check for Updates…", systemImage: "arrow.triangle.2.circlepath") { model.checkForUpdates() }
+                Toggle("Update Automatically", isOn: Binding(get: { Updater.shared.automatic },
+                                                             set: { Updater.shared.automatic = $0 }))
             } label: {
                 Label("More", systemImage: "ellipsis.circle")
             }
@@ -167,6 +172,44 @@ struct StatusBar: View {
         .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
         .environment(\.colorScheme, .dark)
         .help(help)
+    }
+}
+
+/// Appears when a new version is ready (or, with automatic updates off, available).
+struct UpdateCapsule: View {
+    @ObservedObject var updater: Updater
+
+    var body: some View {
+        Group {
+            switch updater.phase {
+            case .ready(let release):
+                capsule("Version \(release.version) is ready", button: "Restart to Update") { updater.installAndRelaunch() }
+            case .available(let release) where Updater.installBlocker == nil:
+                capsule("Version \(release.version) is available", button: "Install") { Task { await updater.download(release) } }
+            case .downloading(let release, let fraction):
+                capsule("Downloading version \(release.version)… \(Int(fraction * 100))%", button: nil) {}
+            default:
+                if updater.modelsPending {
+                    capsule("Improved neural networks installed", button: "Restart to Use") { updater.installAndRelaunch() }
+                }
+            }
+        }
+        .animation(.snappy(duration: 0.25), value: updater.phase)
+    }
+
+    private func capsule(_ text: String, button: String?, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.down.circle.fill").foregroundStyle(.tint)
+            Text(text).font(.callout.weight(.medium)).monospacedDigit()
+            if let button {
+                Button(button, action: action).buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.small)
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.leading, 12).padding(.trailing, button == nil ? 14 : 6).frame(height: 36)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+        .environment(\.colorScheme, .dark)
     }
 }
 

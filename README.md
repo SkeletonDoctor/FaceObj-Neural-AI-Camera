@@ -1,77 +1,121 @@
+<img src="FaceRecApp/FaceRec/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png" width="128" alt="FaceRec icon">
+
 # FaceRec
 
-> **New: native Mac app.** [`FaceRecApp/`](FaceRecApp/) is a Swift rewrite that draws video with Metal and runs both neural networks on the Apple Neural Engine through Core ML. It adds continuous, angle-aware learning, camera resolution and frame-rate control, and a redesigned interface. See [FaceRecApp/README.md](FaceRecApp/README.md). The original Python app below is unchanged.
+Real-time face recognition for Apple Silicon Macs. Name a face once and the app keeps learning that person from every new angle. Everything runs on-device: video is drawn with Metal and both neural networks run on the Apple Neural Engine through Core ML.
 
+## Download
 
-Real-time face recognition optimised for Apple Silicon. Assigns names to faces and improves accuracy the more it sees each person.
+**[Download FaceRec for Mac (.dmg)](https://github.com/SkeletonDoctor/FaceObj-Neural-AI-Camera/releases/latest)**
 
-Built with MTCNN detection, FaceNet (VGGFace2) embeddings, Kalman tracking, and optional YOLOv8 object detection. All inference runs on-device via MPS.
-<img width="2292" height="1281" alt="Screenshot 2026-03-28 at 12 49 59 PM" src="https://github.com/user-attachments/assets/5fab499f-d079-42f1-b9af-27a00ccd11de" />
+Requires macOS 15 or later on Apple Silicon.
 
-## Requirements
+1. Open the `.dmg` and drag FaceRec to Applications.
+2. The app is not notarised by Apple, so the first launch is blocked. Open **System Settings › Privacy & Security**, scroll to the message about FaceRec and click **Open Anyway**.
+3. Allow camera access when asked.
 
-- macOS with Apple Silicon (M1 or later)
-- Python 3.12 (installed via Homebrew)
-- Logitech Brio or any 1080p+ webcam
+### Updates
 
-## Setup
+FaceRec updates itself. It checks this repository's releases shortly after launch and once a day, downloads a newer version in the background, and installs it when you quit (or straight away with **Restart to Update**). Improved neural networks are delivered the same way. Every download is checked against a signature before it is installed. **More › Check for Updates…** checks on demand, and **More › Update Automatically** turns the background checks off.
 
-```bash
-git clone <repo>
-cd FaceRec
-./setup.sh
-source .venv/bin/activate
-```
+Because the app is not notarised, macOS asks for camera access again after each update.
 
-`setup.sh` creates a Python 3.12 virtual environment and downloads all model weights (~150 MB total, one time).
+## Using it
 
-## Usage
+| Key | Toolbar | Action |
+|---|---|---|
+| `A` | Name Face | Name the largest face in frame (shows its picture; pick an existing person to add to them) |
+| | Camera and quality menus | Choose the camera, its resolution and its frame rate (remembered per camera) |
+| `O` | Objects | Toggle object detection (80 everyday object classes) |
+| `L` | People | Show known people with their picture and learned angles; hover a row for rename and delete |
+| `S` | More › Save Database | Save the database now |
+| | More › Enrol from Photos | Add a person from image files |
+| | More › Identify a Photo | Recognise the faces in an image file |
 
-**Live camera**
-```bash
-python main.py camera
-```
+On the video, a white bracket is an unknown face and a green one a recognised face (shading to orange for weaker matches). A spark next to a name means that frame was just learned. The capsules at the top-left show camera frame rate, frames analysed per second, faces in view, samples learned since launch and, when on, objects in view.
 
-**Enrol someone from photos** (more angles = better accuracy)
-```bash
-python main.py add "Alice" photo1.jpg photo2.jpg photo3.jpg
-```
+## Continuous learning
 
-**Other commands**
-```bash
-python main.py list                        # show known people and sample counts
-python main.py test photo.jpg              # identify faces in a still image
-python main.py rename "Alice" "Alice S."
-python main.py delete "Alice"
-```
+After a person is named once, the app keeps learning them:
 
-## Camera controls
+- **Angles are filed separately.** Samples are sorted into 9 head-angle bins (left/centre/right turn by up/level/down tilt), 16 per bin. A new angle is never crowded out by more frontal frames. The grid next to each name in the People panel shows which angles are covered.
+- **Confident matches refresh the samples.** A match of 72% or more that clearly beats every other person is stored if it shows something new, or replaces a stored near-duplicate if it is sharper or the stored one is over a week old.
+- **New angles are learned through tracking.** When a tracked, confirmed face turns far enough that it is no longer recognised, the frame is stored if it is still close to something already known about that person and does not look like anyone else.
+- **Naming enrols every angle seen so far.** While a face is unnamed, the tracker collects its varied views; pressing `A` stores all of them.
+- **Safeguards.** A track must agree on a name 5 times before it can teach new angles, a different name has to win twice in a row before a track switches to it, and a track drops its name after 6 frames that look nothing like that person.
 
-| Key | Action |
-|-----|--------|
+## Privacy
 
-| `A` | Label the largest face in frame |
-| `O` | Toggle object detection (YOLOv8) |
-| `S` | Save database |
-| `L` | List known people |
-| `Q` / `ESC` | Quit |
+Video never leaves the Mac. Face data is stored only in `~/Library/Application Support/FaceRec/`: `faces.json` holds the embeddings and `avatars/` one small picture per person. Delete that folder to erase everything the app has learned.
 
 ## How it works
 
-**Detection** — MTCNN runs on CPU (ARM NEON). Tries the frame upright first; if no face is found, retries at ±45° and ±90° to handle tilted heads.
+| Stage | How it runs |
+|---|---|
+| Camera | AVFoundation, mirrored, at the resolution and frame rate you pick |
+| Video display | Metal, each frame drawn as it arrives, camera buffers wrapped as textures without copying |
+| Face detection + landmarks | Vision |
+| Face embedding | FaceNet (InceptionResnetV1, VGGFace2) on Core ML |
+| Object detection | YOLOv8n on Core ML |
+| Tracking | Kalman filter per face with Hungarian assignment |
 
-**Embedding** — InceptionResnetV1 pretrained on VGGFace2 produces 512-dim embeddings. Runs on MPS.
+Core ML decides where each layer runs. On an M5, the self-test reports 99% of FaceNet's and 98% of YOLOv8n's layers on the Neural Engine.
 
-**Recognition** — cosine similarity against per-person prototype embeddings. Threshold adapts per person based on how consistent their embeddings are.
+## Accuracy and speed
 
-**Learning** — every confident match above 72% similarity is added to that person's sample pool (up to 64 samples, quality-weighted). Samples from harder angles are also added when the Kalman tracker has an established identity but recognition drops below threshold.
+Measured with `FaceRec --benchmark` on the LFW face-pairs benchmark, through the app's own detector, alignment and embedding (M5):
 
-**Tracking** — Kalman filter (constant-velocity) per face. Boxes are smooth and predict forward between detection frames. Confirmed after 2 matches, dropped after 8 missed frames.
+| | Held-out test pairs (1000) |
+|---|---|
+| Best verification accuracy | 99.2% |
+| Same-person pairs accepted at the app's 0.55 threshold | 97.0% |
+| Different-person pairs accepted at 0.55 | 0 of 500 (0.09% on the 2200 tuning pairs) |
+| Time per image, one face | 6.5 ms |
 
-**Object detection** — YOLOv8n on MPS, 80 COCO classes. Runs in a separate thread so it doesn't affect face detection throughput.
+A 1280×720 frame with two faces takes about 10 ms to analyse, so analysis keeps up with a 60 fps camera.
 
-## Data
+## Building from source
 
-Face embeddings are stored in `data/faces.json`. This file is excluded from the repo — it contains biometric data and should never be committed.
+Needs Xcode.
 
-Model weights (`data/yolov8n.pt`, and the facenet-pytorch cached weights) are also excluded and re-downloaded by `setup.sh`.
+```bash
+cd FaceRecApp
+```
+
+```bash
+Tools/build.sh
+```
+
+```bash
+open build/Build/Products/Release/FaceRec.app
+```
+
+`Tools/build.sh` signs with an Apple Development certificate if the keychain has one, so macOS remembers the camera permission between builds. You can also open `FaceRecApp/FaceRec.xcodeproj` in Xcode and press Run.
+
+The neural networks are not in the repository. A build without them downloads the published set on first launch. To convert them yourself from the original PyTorch weights instead (needs [`uv`](https://docs.astral.sh/uv/), about 150 MB of downloads), run `Tools/setup_models.sh` before building.
+
+### Releasing
+
+| Script | What it does |
+|---|---|
+| `Tools/make_dmg.sh` | Builds the distributable disk image |
+| `Tools/release.sh` | Builds, signs and publishes a GitHub release: the disk image, `FaceRec.zip` for self-update and `Models-<n>.zip` |
+| `Tools/sign_update.swift` | Creates the update signing key and signs files. The private key stays in `~/.config/facerec/`, outside the repository |
+| `Tools/make_icon.swift` | Draws the app icon |
+
+To publish a new version, raise `MARKETING_VERSION` in the Xcode project (and `ModelStore.bundledVersion` if the models changed), commit, and run `Tools/release.sh`. Forks need their own key: change `repository` and `publicKey` in `FaceRec/ReleaseFeed.swift`.
+
+### Checks without a camera
+
+The built binary is at `build/Build/Products/Release/FaceRec.app/Contents/MacOS/FaceRec`:
+
+| Command | What it does |
+|---|---|
+| `FaceRec --selftest photo.jpg …` | Loads the models, reports where they run, analyses the photos and exercises the learning and tracking logic |
+| `FaceRec --benchmark pairs.tsv` | Measures accuracy on labelled pairs, one per line: `imageA<TAB>imageB<TAB>1` (same person) or `0` |
+| `FaceRec --render <dir> photo.jpg` | Draws the interface over a photo into `video.png` and `people.png` |
+| `FaceRec --update-test` | Runs one update check, download and install without the window. `FACEREC_UPDATE_FEED` can point it at a test release description; signatures are still checked |
+
+## Licences
+
+The app's code is under the Apache 2.0 licence in this repository. The downloadable app bundles two converted models with their own licences: FaceNet weights from [facenet-pytorch](https://github.com/timesler/facenet-pytorch) (MIT) and YOLOv8n from [Ultralytics](https://github.com/ultralytics/ultralytics) (AGPL-3.0).

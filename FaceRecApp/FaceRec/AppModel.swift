@@ -57,6 +57,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var avatars: [String: NSImage] = [:]
     @Published private(set) var engine: Engine?
     @Published private(set) var startupError: String?
+    /// Shown under the spinner while the app gets ready.
+    @Published private(set) var startupMessage = "Preparing the neural networks…"
     @Published private(set) var cameras: [Camera.Device] = []
     @Published private(set) var cameraID: String?
     @Published private(set) var resolutions: [Camera.Resolution] = []
@@ -80,6 +82,15 @@ final class AppModel: ObservableObject {
             return
         }
         do {
+            // A copy built without the models fetches them now (signature-checked).
+            ModelStore.removeOutdated()
+            if ModelStore.currentVersion == 0 { startupMessage = "Downloading the neural networks…" }
+            try await ModelStore.ensureAvailable { fraction in
+                Task { @MainActor in
+                    AppModel.shared.startupMessage = "Downloading the neural networks… \(Int(fraction * 100))%"
+                }
+            }
+            startupMessage = "Preparing the neural networks…"
             // Loading compiles the models for this Mac's Neural Engine; slow the first time only.
             let engine = try await Task.detached { try Engine(store: FaceStore(url: FaceStore.defaultURL)) }.value
             let overlay = overlay, status = status
@@ -90,6 +101,7 @@ final class AppModel: ObservableObject {
                 }
             }
             self.engine = engine
+            Updater.shared.start()
             refreshPeople()
             cameras = Camera.devices()
             let saved = UserDefaults.standard.string(forKey: "cameraID")
@@ -235,6 +247,28 @@ final class AppModel: ObservableObject {
                 message = results == nil ? "Cannot read this image." : "No faces detected."
             }
             notice = Notice(title: photo.lastPathComponent, message: message)
+        }
+    }
+
+    /// "Check for Updates…": checks now and says what it found.
+    func checkForUpdates() {
+        Task {
+            let updater = Updater.shared
+            await updater.check(userInitiated: true)
+            switch updater.phase {
+            case .upToDate:
+                notice = Notice(title: "FaceRec is up to date", message: updater.modelsPending
+                    ? "Version \(Updater.currentVersion) is the newest. Improved neural networks were installed and will be used after a restart."
+                    : "Version \(Updater.currentVersion) is the newest.")
+            case .failed(let message):
+                notice = Notice(title: "Update check failed", message: message)
+            case .available(let release):
+                if let blocker = Updater.installBlocker {
+                    notice = Notice(title: "Version \(release.version) is available", message: blocker)
+                }
+            default:
+                break   // downloading or ready: the update capsule shows it
+            }
         }
     }
 
