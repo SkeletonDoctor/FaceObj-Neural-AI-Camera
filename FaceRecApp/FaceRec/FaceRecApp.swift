@@ -12,6 +12,27 @@ enum Main {
             }
             dispatchMain()
         }
+        // `FaceRec --update-test` runs one update check, download and install without the window
+        // (use with FACEREC_UPDATE_FEED), then prints what happened.
+        if CommandLine.arguments.contains("--update-test") {
+            Task { @MainActor in
+                print("update-test: running version \(Updater.currentVersion), models v\(ModelStore.currentVersion)")
+                do {
+                    try await ModelStore.ensureAvailable { _ in }
+                } catch {
+                    print("update-test: models unavailable: \(error.localizedDescription)")
+                }
+                let updater = Updater.shared
+                await updater.check(userInitiated: true)
+                print("update-test: phase \(updater.phase)".prefix(160))
+                print("update-test: models now v\(ModelStore.currentVersion), pending restart \(updater.modelsPending)")
+                updater.finishOnQuit()
+                let installed = Bundle(url: Bundle.main.bundleURL)?.infoDictionary?["CFBundleShortVersionString"] ?? "?"
+                print("update-test: app bundle on disk is now version \(NSDictionary(contentsOf: Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist"))?["CFBundleShortVersionString"] ?? installed)")
+                exit(0)
+            }
+            dispatchMain()
+        }
         // `FaceRec --benchmark pairs.tsv` measures recognition accuracy on labelled pairs.
         if let flag = CommandLine.arguments.firstIndex(of: "--benchmark") {
             Benchmark.run(Array(CommandLine.arguments[(flag + 1)...]))
@@ -43,6 +64,11 @@ struct FaceRecApp: App {
                 .preferredColorScheme(.dark)
         }
         .defaultSize(width: 1280, height: 760)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { model.checkForUpdates() }
+            }
+        }
     }
 }
 
@@ -51,5 +77,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         AppModel.shared.saveOnQuit()
+        Updater.shared.finishOnQuit()
     }
 }

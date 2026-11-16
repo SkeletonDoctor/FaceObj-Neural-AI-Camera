@@ -8,19 +8,14 @@ enum ModelError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missing(let name): "\(name).mlmodelc is not in the app bundle. Run Tools/setup_models.sh, then rebuild."
+        case .missing(let name): "The \(name) model is missing from this copy of FaceRec."
         case .badOutput(let name): "\(name) returned an unexpected output."
         }
     }
 }
 
 enum Models {
-    static func url(_ name: String) throws -> URL {
-        guard let url = Bundle.main.url(forResource: name, withExtension: "mlmodelc") else {
-            throw ModelError.missing(name)
-        }
-        return url
-    }
+    static func url(_ name: String) throws -> URL { try ModelStore.url(name) }
 
     /// `.all` lets Core ML place each layer on the Neural Engine, GPU or CPU.
     static func configuration() -> MLModelConfiguration {
