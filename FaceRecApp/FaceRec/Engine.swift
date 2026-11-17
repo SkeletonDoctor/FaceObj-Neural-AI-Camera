@@ -102,6 +102,13 @@ final class Engine: @unchecked Sendable {
     private var learnedCount = 0
     private var lastSave = Date()
     private var patience: TimeInterval = 1
+    private var lastSighting: [String: Date] = [:]
+
+    /// Called (on the face queue) when someone appears on a network camera.
+    var onSighting: (@Sendable (SightingReport) -> Void)?
+    /// The same person on the same camera is not reported again within this long.
+    static let knownCooldown: TimeInterval = 120
+    static let unknownCooldown: TimeInterval = 30
 
     init(store: FaceStore) throws {
         self.store = store
@@ -253,12 +260,31 @@ final class Engine: @unchecked Sendable {
 
     private func analyseFaces(_ frame: CVPixelBuffer, _ feed: Feed) {
         let faces = try? analyzer.analyze(frame)
-        let outcome: (learned: Int, names: [String?]) = feed.lock.withLock {
+        let outcome: (learned: Int, names: [String?], sightings: [Sighting]) = feed.lock.withLock {
             feed.detectionCount += 1
-            guard let faces else { return (0, []) }
+            guard let faces else { return (0, [], []) }
             return feed.tracker.update(faces, store: store)
         }
         if outcome.learned > 0 { schedule.withLock { learnedCount += outcome.learned } }
+        if !feed.isLive, let onSighting {
+            let now = Date()
+            // Decide per person, once for this frame, so two strangers who walk in
+            // together are both logged while a lingering one is not logged repeatedly.
+            let fresh: Set<String> = schedule.withLock {
+                var keys = Set<String>()
+                for sighting in outcome.sightings {
+                    let key = feed.id + "|" + (sighting.name ?? "")
+                    let cooldown = sighting.name == nil ? Self.unknownCooldown : Self.knownCooldown
+                    if let last = lastSighting[key], now.timeIntervalSince(last) < cooldown { continue }
+                    keys.insert(key)
+                }
+                for key in keys { lastSighting[key] = now }
+                return keys
+            }
+            for sighting in outcome.sightings where fresh.contains(feed.id + "|" + (sighting.name ?? "")) {
+                onSighting(SightingReport(feedID: feed.id, sighting: sighting, frame: FaceCrop(buffer: frame), date: now))
+            }
+        }
         // Keep each person's picture fresh from good, face-on frames.
         for (face, name) in zip(faces ?? [], outcome.names) {
             if let name, let crop = face.crop, FaceStore.angleBin(yaw: face.yaw, pitch: face.pitch) == 4 {

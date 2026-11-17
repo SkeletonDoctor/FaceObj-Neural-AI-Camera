@@ -67,6 +67,30 @@ final class AppModel: ObservableObject {
     }
     private let idleStatus = StatusModel()
 
+    // MARK: Security
+
+    let eventLog = EventLog()
+    /// Network cameras only: this Mac's own camera is off.
+    @Published var securityMode: Bool = UserDefaults.standard.bool(forKey: "securityMode") {
+        didSet {
+            guard securityMode != oldValue else { return }
+            UserDefaults.standard.set(securityMode, forKey: "securityMode")
+            Task { await applyCameraMode() }
+        }
+    }
+    @Published var notifyUnknown: Bool = UserDefaults.standard.bool(forKey: "notifyUnknown") {
+        didSet { UserDefaults.standard.set(notifyUnknown, forKey: "notifyUnknown"); askForNotifications(notifyUnknown) }
+    }
+    @Published var notifyKnown: Bool = UserDefaults.standard.bool(forKey: "notifyKnown") {
+        didSet { UserDefaults.standard.set(notifyKnown, forKey: "notifyKnown"); askForNotifications(notifyKnown) }
+    }
+    @Published var keepAwake: Bool = UserDefaults.standard.object(forKey: "keepAwake") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(keepAwake, forKey: "keepAwake"); updateKeepAwake() }
+    }
+    /// Events that arrived since the Events panel was last looked at.
+    @Published var unseenEvents = 0
+    private var awakeToken: NSObjectProtocol?
+
     var selectedFeed: FeedModel? { feeds.first { $0.id == selectedFeedID } ?? feeds.first }
     /// The selected camera's live numbers.
     var status: StatusModel { selectedFeed?.status ?? idleStatus }
@@ -93,10 +117,6 @@ final class AppModel: ObservableObject {
         guard !started else { return }
         started = true
 
-        guard await AVCaptureDevice.requestAccess(for: .video) else {
-            startupError = "Camera access is off for FaceRec. Turn it on in System Settings › Privacy & Security › Camera, then reopen the app."
-            return
-        }
         do {
             // A copy built without the models fetches them now (signature-checked).
             ModelStore.removeOutdated()
@@ -110,15 +130,15 @@ final class AppModel: ObservableObject {
             // Loading compiles the models for this Mac's Neural Engine; slow the first time only.
             let engine = try await Task.detached { try Engine(store: FaceStore(url: FaceStore.defaultURL)) }.value
             engine.networkCameraPatience = networkPatience
-            feeds = [FeedModel(feed: engine.local, name: "This Mac", isLocal: true)]
+            engine.onSighting = { report in
+                Task { @MainActor in await AppModel.shared.handle(report) }
+            }
             self.engine = engine
             networkCameras = NetworkCameraStore.load()
             reconcileNetworkCameras()
             Updater.shared.start()
             refreshPeople()
-            cameras = Camera.devices()
-            let saved = UserDefaults.standard.string(forKey: "cameraID")
-            selectCamera(cameras.contains { $0.id == saved } ? saved : Camera.defaultDeviceID)
+            await applyCameraMode()
         } catch {
             startupError = error.localizedDescription
         }
@@ -166,6 +186,64 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: Security mode
+
+    /// Turns this Mac's own camera on (normal) or off (security mode).
+    private func applyCameraMode() async {
+        guard let engine else { return }
+        if securityMode {
+            engine.camera.stop()
+            engine.local.frames.set(nil)
+            feeds.removeAll(where: \.isLocal)
+            if !feeds.contains(where: { $0.id == selectedFeedID }), let first = feeds.first { selectedFeedID = first.id }
+        } else if !feeds.contains(where: \.isLocal) {
+            if await AVCaptureDevice.requestAccess(for: .video) {
+                guard !securityMode else { return }
+                feeds.insert(FeedModel(feed: engine.local, name: "This Mac", isLocal: true), at: 0)
+                selectedFeedID = Feed.localID
+                cameras = Camera.devices()
+                let saved = UserDefaults.standard.string(forKey: "cameraID")
+                selectCamera(cameras.contains { $0.id == saved } ? saved : Camera.defaultDeviceID)
+            } else {
+                notice = Notice(title: "Camera access is off", message: "To use this Mac's camera, turn FaceRec on in System Settings › Privacy & Security › Camera. Network cameras work without it.")
+            }
+        }
+        updateKeepAwake()
+    }
+
+    /// While watching network cameras, stop the Mac from sleeping or napping the app.
+    private func updateKeepAwake() {
+        let wanted = keepAwake && feeds.contains { !$0.isLocal }
+        if wanted, awakeToken == nil {
+            awakeToken = ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiated, .idleSystemSleepDisabled], reason: "Watching network cameras")
+        } else if !wanted, let token = awakeToken {
+            ProcessInfo.processInfo.endActivity(token)
+            awakeToken = nil
+        }
+    }
+
+    private func askForNotifications(_ turnedOn: Bool) {
+        guard turnedOn else { return }
+        Task {
+            if !(await Notifier.shared.requestPermission()) {
+                notice = Notice(title: "Notifications are off", message: "To get alerts, allow notifications for FaceRec in System Settings › Notifications.")
+            }
+        }
+    }
+
+    /// Someone appeared on a network camera: log it and, if asked, alert.
+    private func handle(_ report: SightingReport) async {
+        guard let camera = feeds.first(where: { $0.id == report.feedID })?.name else { return }
+        let event = await eventLog.record(report, camera: camera)
+        unseenEvents += 1
+        if let name = event.name {
+            if notifyKnown { Notifier.shared.post(title: name, body: "Seen on \(camera)", picture: eventLog.url(event.face)) }
+        } else if notifyUnknown {
+            Notifier.shared.post(title: "Unknown person", body: "Seen on \(camera)", picture: eventLog.url(event.face))
+        }
+    }
+
     // MARK: Network cameras
 
     /// Replaces the saved list (from Settings) and connects or disconnects to match.
@@ -210,7 +288,8 @@ final class AppModel: ObservableObject {
             if a.isLocal != b.isLocal { return a.isLocal }
             return (order[a.id] ?? 0) < (order[b.id] ?? 0)
         }
-        if !feeds.contains(where: { $0.id == selectedFeedID }) { selectedFeedID = Feed.localID }
+        if !feeds.contains(where: { $0.id == selectedFeedID }) { selectedFeedID = feeds.first?.id ?? Feed.localID }
+        updateKeepAwake()
     }
 
     /// Tries an address for a few seconds and says what happened.
