@@ -4,6 +4,10 @@
 
 Real-time face recognition for Apple Silicon Macs. Name a face once and the app keeps learning that person from every new angle. Everything runs on-device: video is drawn with Metal and both neural networks run on the Apple Neural Engine through Core ML.
 
+![FaceRec in Security mode watching three public street cameras, with tracked objects](docs/images/camera-grid.jpg)
+
+*Security mode watching three public street cameras at once (Nashville, Akron and Lake Tahoe), with object tracking on.*
+
 ## Download
 
 **[Download FaceRec for Mac (.dmg)](https://github.com/SkeletonDoctor/FaceObj-Neural-AI-Camera/releases/latest)**
@@ -64,6 +68,14 @@ Objects are followed from frame to frame, so a box does not flicker or vanish wh
 
 On two live street cameras over 40 seconds, boxes that vanished and came back within 2 seconds went from 172 to 2 and from 54 to 0.
 
+![One camera shown alone, with cars, a truck and people tracked](docs/images/object-tracking.jpg)
+
+*One camera shown alone. Each box is a tracked object with its label and the detector's confidence.*
+
+![The object filter panel open over the video](docs/images/object-filter.jpg)
+
+*The object filter: turn detection on, set how sure it must be, and choose which kinds of object to show.*
+
 ## Network cameras
 
 In Security mode, add IP cameras with **Add Camera** (in the toolbar, or the dashed tile in the grid). Pick the camera's make, type its address, user name and password, and FaceRec builds the stream address for Hikvision, Dahua, Amcrest, Reolink, TP-Link Tapo, Axis and Foscam cameras; or paste a full address. **Test Connection** shows the camera's picture before you add it. Cameras appear in a grid: click a tile to select it, double-click to show it alone, and hover for edit, switch-off and remove. Faces seen on any camera are recognised and learned the same way.
@@ -78,6 +90,20 @@ In Security mode, add IP cameras with **Add Camera** (in the toolbar, or the das
 The make presets are the usual addresses for those brands; some models differ.
 
 Network cameras do not have to be analysed fully live. When this Mac's camera is also being watched it has priority and is analysed at its full frame rate. Network cameras are analysed in the gaps: often when the Mac is keeping up, less often as load rises, and never less often than the limit in **Settings › General** (1 second by default). Their video keeps playing at full speed either way, and each tile shows its video rate and how many frames per second are being analysed.
+
+### Trying it without a camera of your own
+
+Public webcams work as test cameras. This one is a street in South Lake Tahoe, offered both ways:
+
+```
+rtsp://live6.brownrice.com:1935/communityinktahoesouth/communityinktahoesouth.stream
+```
+
+```
+https://live6.brownrice.com:444/communityinktahoesouth/communityinktahoesouth.stream/main_playlist.m3u8
+```
+
+Many webcam sites embed an HLS stream; the `.m3u8` address in the page's player is what to paste. Cameras shown through YouTube cannot be used. These are other people's cameras, so use them for a quick test rather than leaving them connected.
 
 RTSP is read over TCP only, so cameras that offer video only over UDP will not connect. Using a camera's lower-resolution stream keeps decoding cheap.
 
