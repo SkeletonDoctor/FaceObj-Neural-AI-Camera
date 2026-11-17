@@ -48,27 +48,35 @@ if [ "${1:-}" = "--package-only" ]; then
 fi
 
 echo "Publishing $TAG..."
-git push origin HEAD
-# Create a draft, upload each file with retries (a dropped connection must not
-# leave a half-published release), then publish.
+# The connection can drop for a moment; every network step is retried, and a
+# rerun resumes a draft, so a release is never left half-published.
+retry() {
+    local attempt
+    for attempt in 1 2 3 4 5 6; do
+        "$@" && return 0
+        echo "Failed (attempt $attempt): $*  Retrying..." >&2
+        sleep 10
+    done
+    return 1
+}
+retry git push origin HEAD
 if ! gh release view "$TAG" >/dev/null 2>&1; then
     if [ $# -gt 0 ]; then
-        gh release create "$TAG" --draft --title "FaceRec $VERSION" --notes "$1"
+        retry gh release create "$TAG" --draft --title "FaceRec $VERSION" --notes "$1"
     else
-        gh release create "$TAG" --draft --title "FaceRec $VERSION" --generate-notes
+        retry gh release create "$TAG" --draft --title "FaceRec $VERSION" --generate-notes
     fi
 fi
+upload() {
+    gh release upload "$TAG" "$1" --clobber || return 1
+    # Confirm the whole file arrived.
+    [ "$(gh release view "$TAG" --json assets -q ".assets[] | select(.name==\"$(basename "$1")\") | .size")" = "$(stat -f %z "$1")" ]
+}
 for asset in "${ASSETS[@]}"; do
-    for attempt in 1 2 3 4 5; do
-        if gh release upload "$TAG" "$asset" --clobber \
-            && gh release view "$TAG" --json assets -q '.assets[].name' | grep -qx "$(basename "$asset")"; then
-            continue 2
-        fi
-        echo "Upload of $asset failed (attempt $attempt), retrying..." >&2
-        sleep 5
-    done
-    echo "Could not upload $asset. The release is still a draft; run Tools/release.sh again to resume." >&2
-    exit 1
+    retry upload "$asset" || {
+        echo "Could not upload $asset. The release is still a draft; run Tools/release.sh again to resume." >&2
+        exit 1
+    }
 done
-gh release edit "$TAG" --draft=false --latest
+retry gh release edit "$TAG" --draft=false --latest
 echo "Released $TAG"
