@@ -39,7 +39,14 @@ private struct AxisFilter {
 }
 
 final class FaceTrack {
-    private static var nextID = 0
+    private static let idLock = NSLock()
+    private static var lastID = 0
+    /// Track numbers are unique across every camera.
+    private static func makeID() -> Int {
+        idLock.lock(); defer { idLock.unlock() }
+        lastID += 1
+        return lastID
+    }
 
     let id: Int
     private var axes: [AxisFilter]     // cx, cy, w, h
@@ -75,8 +82,7 @@ final class FaceTrack {
     private var rival: (name: String, hits: Int)?
 
     init(_ result: FaceResult) {
-        FaceTrack.nextID += 1
-        id = FaceTrack.nextID
+        id = FaceTrack.makeID()
         let b = result.face.box
         axes = [
             AxisFilter(position: Double(b.x1 + b.x2) / 2, pp: 10, vv: 50,

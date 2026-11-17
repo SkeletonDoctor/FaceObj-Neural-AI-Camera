@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreVideo
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -52,8 +53,23 @@ struct Notice: Identifiable {
 final class AppModel: ObservableObject {
     static let shared = AppModel()
 
-    let overlay = OverlayModel()
-    let status = StatusModel()
+    /// Every camera on screen: the Mac's own first, then the enabled network cameras.
+    @Published private(set) var feeds: [FeedModel] = []
+    @Published var selectedFeedID = Feed.localID
+    /// With several cameras: show them all in a grid, or only the selected one.
+    @Published var gridMode = true
+    @Published private(set) var networkCameras: [NetworkCamera] = []
+    @Published var networkPatience: Double = UserDefaults.standard.object(forKey: "networkPatience") as? Double ?? 1 {
+        didSet {
+            UserDefaults.standard.set(networkPatience, forKey: "networkPatience")
+            engine?.networkCameraPatience = networkPatience
+        }
+    }
+    private let idleStatus = StatusModel()
+
+    var selectedFeed: FeedModel? { feeds.first { $0.id == selectedFeedID } ?? feeds.first }
+    /// The selected camera's live numbers.
+    var status: StatusModel { selectedFeed?.status ?? idleStatus }
     @Published private(set) var avatars: [String: NSImage] = [:]
     @Published private(set) var engine: Engine?
     @Published private(set) var startupError: String?
@@ -93,14 +109,11 @@ final class AppModel: ObservableObject {
             startupMessage = "Preparing the neural networks…"
             // Loading compiles the models for this Mac's Neural Engine; slow the first time only.
             let engine = try await Task.detached { try Engine(store: FaceStore(url: FaceStore.defaultURL)) }.value
-            let overlay = overlay, status = status
-            engine.onOverlay = { state in
-                MainActor.assumeIsolated {
-                    overlay.state = state
-                    status.update(from: state)
-                }
-            }
+            engine.networkCameraPatience = networkPatience
+            feeds = [FeedModel(feed: engine.local, name: "This Mac", isLocal: true)]
             self.engine = engine
+            networkCameras = NetworkCameraStore.load()
+            reconcileNetworkCameras()
             Updater.shared.start()
             refreshPeople()
             cameras = Camera.devices()
@@ -153,6 +166,86 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: Network cameras
+
+    /// Replaces the saved list (from Settings) and connects or disconnects to match.
+    func setNetworkCameras(_ cameras: [NetworkCamera]) {
+        networkCameras = cameras
+        NetworkCameraStore.save(cameras)
+        reconcileNetworkCameras()
+    }
+
+    private func reconcileNetworkCameras() {
+        guard let engine else { return }
+        let wanted = networkCameras.filter(\.enabled)
+        // Drop cameras that were removed, switched off, or given a new address.
+        for model in feeds where !model.isLocal {
+            if let camera = wanted.first(where: { $0.id.uuidString == model.id }), camera.address == model.address {
+                model.name = camera.name
+            } else {
+                model.source?.stop()
+                engine.removeFeed(model.feed)
+                feeds.removeAll { $0.id == model.id }
+            }
+        }
+        for camera in wanted where !feeds.contains(where: { $0.id == camera.id.uuidString }) {
+            let model = FeedModel(feed: engine.addFeed(id: camera.id.uuidString), name: camera.name, isLocal: false)
+            model.address = camera.address
+            if let source = StreamSources.make(camera.address) {
+                let feed = model.feed
+                source.onFrame = { [weak engine] frame in engine?.ingest(frame, from: feed) }
+                source.onStatus = { [weak model] status in
+                    Task { @MainActor in model?.connection = status }
+                }
+                model.source = source
+                source.start()
+            } else {
+                model.connection = .failed("This address is not one FaceRec can play.")
+            }
+            feeds.append(model)
+        }
+        // Keep the Settings order.
+        let order = Dictionary(uniqueKeysWithValues: wanted.enumerated().map { ($1.id.uuidString, $0) })
+        feeds.sort { a, b in
+            if a.isLocal != b.isLocal { return a.isLocal }
+            return (order[a.id] ?? 0) < (order[b.id] ?? 0)
+        }
+        if !feeds.contains(where: { $0.id == selectedFeedID }) { selectedFeedID = Feed.localID }
+    }
+
+    /// Tries an address for a few seconds and says what happened.
+    func testCamera(_ address: String) async -> String {
+        guard let source = StreamSources.make(address) else {
+            return "This is not an address FaceRec can play. It should start with rtsp://, rtsps://, http:// or https://."
+        }
+        final class Outcome: @unchecked Sendable {
+            let lock = NSLock()
+            var answered = false
+            var lastFailure = "The camera did not answer within 10 seconds."
+        }
+        let outcome = Outcome()
+        return await withCheckedContinuation { continuation in
+            @Sendable func finish(_ message: String?) {
+                let text: String? = outcome.lock.withLock {
+                    if outcome.answered { return nil }
+                    outcome.answered = true
+                    return message ?? outcome.lastFailure
+                }
+                guard let text else { return }
+                source.stop()
+                continuation.resume(returning: text)
+            }
+            source.onFrame = { frame in
+                finish("Connected: \(CVPixelBufferGetWidth(frame)) × \(CVPixelBufferGetHeight(frame)) video.")
+            }
+            source.onStatus = { status in
+                if case .failed(let message) = status { outcome.lock.withLock { outcome.lastFailure = message } }
+            }
+            source.start()
+            DispatchQueue.global().asyncAfter(deadline: .now() + 10) { finish(nil) }
+        }
+    }
+
     func toggleObjects() {
         guard let engine else { return }
         objectsEnabled.toggle()
@@ -162,7 +255,9 @@ final class AppModel: ObservableObject {
 
     func beginLabel() {
         guard let engine else { return }
-        if let candidate = engine.largestFace() {
+        // The selected camera first; in the grid, fall back to any camera with a face.
+        let order = [selectedFeed].compactMap { $0 } + (gridMode ? feeds.filter { $0.id != selectedFeedID } : [])
+        if let candidate = order.lazy.compactMap({ engine.largestFace(in: $0.feed) }).first {
             labelRequest = LabelRequest(candidate: candidate)
         } else {
             show("No confirmed face in frame")

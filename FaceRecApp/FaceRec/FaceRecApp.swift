@@ -33,6 +33,10 @@ enum Main {
             }
             dispatchMain()
         }
+        // `FaceRec --stream-test rtsp://camera/stream` connects to a network camera without the window.
+        if let flag = CommandLine.arguments.firstIndex(of: "--stream-test") {
+            StreamTest.run(Array(CommandLine.arguments[(flag + 1)...]))
+        }
         // `FaceRec --benchmark pairs.tsv` measures recognition accuracy on labelled pairs.
         if let flag = CommandLine.arguments.firstIndex(of: "--benchmark") {
             Benchmark.run(Array(CommandLine.arguments[(flag + 1)...]))
@@ -65,9 +69,16 @@ struct FaceRecApp: App {
         }
         .defaultSize(width: 1280, height: 760)
         .commands {
+            CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") { model.checkForUpdates() }
             }
+        }
+
+        Settings {
+            SettingsView()
+                .environmentObject(model)
+                .preferredColorScheme(.dark)
         }
     }
 }

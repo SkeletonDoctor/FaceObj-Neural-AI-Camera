@@ -8,9 +8,12 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             Color.black
-            if let engine = model.engine {
-                MetalVideoView(frames: engine.frames)
-                OverlayView(model: model.overlay)
+            if model.engine != nil {
+                if model.feeds.count > 1, model.gridMode {
+                    CameraGrid()
+                } else if let feed = model.selectedFeed {
+                    FeedView(feed: feed).id(feed.id)
+                }
             } else if let error = model.startupError {
                 ContentUnavailableView {
                     Label("FaceRec cannot start", systemImage: "video.slash.fill")
@@ -26,7 +29,9 @@ struct ContentView: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if model.engine != nil { StatusBar(model: model.status).padding(14) }
+            if model.engine != nil, !(model.feeds.count > 1 && model.gridMode) {
+                StatusBar(model: model.status).padding(14)
+            }
         }
         .overlay(alignment: .bottom) {
             VStack(spacing: 10) {
@@ -54,6 +59,7 @@ struct ContentView: View {
             case "o": model.toggleObjects()
             case "s": model.save()
             case "l": togglePeople(!showPeople)
+            case "g": if model.feeds.count > 1 { model.gridMode.toggle() }
             default: return .ignored
             }
             return .handled
@@ -112,6 +118,12 @@ struct ContentView: View {
             .buttonStyle(.borderedProminent)
             .help("Name the largest face in frame (A)")
         }
+        if model.feeds.count > 1 {
+            ToolbarItem(placement: .primaryAction) {
+                Toggle(isOn: $model.gridMode) { Label("Grid", systemImage: "square.grid.2x2") }
+                    .help("Show every camera, or only the selected one (G)")
+            }
+        }
         ToolbarItem(placement: .primaryAction) {
             Toggle(isOn: Binding(get: { model.objectsEnabled }, set: { _ in model.toggleObjects() })) {
                 Label("Objects", systemImage: "cube.transparent")
@@ -125,6 +137,7 @@ struct ContentView: View {
                 Divider()
                 Button("Save Database", systemImage: "square.and.arrow.down") { model.save() }
                 Divider()
+                SettingsLink { Label("Network Cameras and Settings…", systemImage: "gearshape") }
                 Button("Check for Updates…", systemImage: "arrow.triangle.2.circlepath") { model.checkForUpdates() }
                 Toggle("Update Automatically", isOn: Binding(get: { Updater.shared.automatic },
                                                              set: { Updater.shared.automatic = $0 }))
@@ -139,6 +152,107 @@ struct ContentView: View {
             }
             .help("Known people (L)")
         }
+    }
+}
+
+// MARK: - Cameras
+
+/// One camera's video with its overlay, and a notice while it is not live.
+struct FeedView: View {
+    @ObservedObject var feed: FeedModel
+
+    var body: some View {
+        ZStack {
+            Color.black
+            MetalVideoView(frames: feed.feed.frames)
+            OverlayView(model: feed.overlay)
+            switch feed.connection {
+            case .live:
+                EmptyView()
+            case .connecting:
+                VStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Connecting to \(feed.name)…").font(.callout)
+                }
+                .foregroundStyle(.white)
+                .padding(14).background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+            case .failed(let message):
+                VStack(spacing: 6) {
+                    Image(systemName: "wifi.exclamationmark").font(.title2)
+                    Text(message).font(.callout).multilineTextAlignment(.center)
+                    Text("Trying again…").font(.caption).foregroundStyle(.white.opacity(0.6))
+                }
+                .foregroundStyle(.white)
+                .padding(14).frame(maxWidth: 320)
+                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+            }
+        }
+    }
+}
+
+/// Every camera at once. Click a tile to select it, double-click to show it alone.
+struct CameraGrid: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        GeometryReader { proxy in
+            let count = model.feeds.count
+            let columns = Int(Double(count).squareRoot().rounded(.up))
+            let rows = Int((Double(count) / Double(columns)).rounded(.up))
+            let spacing: CGFloat = 6
+            let width = (proxy.size.width - spacing * CGFloat(columns + 1)) / CGFloat(columns)
+            let height = (proxy.size.height - spacing * CGFloat(rows + 1)) / CGFloat(rows)
+            VStack(spacing: spacing) {
+                ForEach(0..<rows, id: \.self) { row in
+                    HStack(spacing: spacing) {
+                        ForEach(model.feeds[(row * columns)..<min((row + 1) * columns, count)]) { feed in
+                            CameraTile(feed: feed, selected: feed.id == model.selectedFeedID)
+                                .frame(width: max(width, 40), height: max(height, 30))
+                                .onTapGesture(count: 2) {
+                                    model.selectedFeedID = feed.id
+                                    model.gridMode = false
+                                }
+                                .onTapGesture { model.selectedFeedID = feed.id }
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+struct CameraTile: View {
+    @ObservedObject var feed: FeedModel
+    let selected: Bool
+
+    var body: some View {
+        FeedView(feed: feed)
+            .overlay(alignment: .bottomLeading) { TileLabel(name: feed.name, status: feed.status).padding(8) }
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? Color.accentColor : .white.opacity(0.10),
+                                                                    lineWidth: selected ? 2 : 1))
+            .contentShape(Rectangle())
+            .accessibilityLabel(feed.name)
+    }
+}
+
+/// A tile's name with how fast its video arrives and how often it is analysed.
+struct TileLabel: View {
+    let name: String
+    @ObservedObject var status: StatusModel
+
+    var body: some View {
+        let s = status.summary
+        HStack(spacing: 6) {
+            Text(name).font(.system(size: 12, weight: .semibold))
+            Text("\(String(s.fps)) fps · analysed \(String(s.detectionsPerSecond))/s")
+                .font(.system(size: 11, weight: .medium).monospacedDigit()).foregroundStyle(.white.opacity(0.65))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 9).frame(height: 24)
+        .background(.black.opacity(0.6), in: Capsule())
+        .help("Video frames per second, and how many of them are analysed for faces each second")
     }
 }
 
