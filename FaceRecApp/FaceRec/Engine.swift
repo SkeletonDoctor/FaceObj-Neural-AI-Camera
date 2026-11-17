@@ -43,7 +43,7 @@ final class Feed: @unchecked Sendable {
     // Guarded by `lock`.
     fileprivate let lock = NSLock()
     fileprivate let tracker = FaceTracker()
-    fileprivate var objects: [ObjectDetection] = []
+    fileprivate let objectTracker = ObjectTracker()
     fileprivate var windowStart = CFAbsoluteTimeGetCurrent()
     fileprivate var frameCount = 0
     fileprivate var detectionCount = 0
@@ -133,22 +133,15 @@ final class Engine: @unchecked Sendable {
                 if !newValue { feeds.forEach { $0.pendingObjects = nil } }
                 return feeds
             }
-            if !newValue { all.forEach { feed in feed.lock.withLock { feed.objects = [] } } }
+            if !newValue { all.forEach { feed in feed.lock.withLock { feed.objectTracker.reset() } } }
         }
     }
 
     /// Which kinds of object to leave out, and how sure the detector must be to show one.
     func setObjectFilter(hidden: Set<String>, confidence: Float) {
-        let all: [Feed] = schedule.withLock {
+        schedule.withLock {
             hiddenObjects = hidden
             objectConfidence = confidence
-            return feeds
-        }
-        // Apply to what is on screen now, without waiting for the next detection.
-        for feed in all {
-            feed.lock.withLock {
-                feed.objects.removeAll { hidden.contains($0.label) || $0.confidence < confidence }
-            }
         }
     }
 
@@ -181,8 +174,10 @@ final class Engine: @unchecked Sendable {
     /// Takes one frame from a camera: shows it, queues it for analysis and publishes the overlay.
     func ingest(_ frame: CVPixelBuffer, from feed: Feed) {
         var saveNow = false
+        var hidden: Set<String> = []
         let (active, objectsOn, learned): (Bool, Bool, Int) = schedule.withLock {
             guard feeds.contains(where: { $0 === feed }) else { return (false, false, 0) }
+            hidden = hiddenObjects
             feed.pendingFaces = frame
             if self.objectsOn { feed.pendingObjects = frame }
             if Date().timeIntervalSince(lastSave) > Self.autoSaveInterval {
@@ -211,9 +206,14 @@ final class Engine: @unchecked Sendable {
                 FaceOverlay(id: $0.id, box: $0.box, name: $0.name, confidence: $0.confidence,
                             sampleCount: $0.sampleCount, autoLearned: $0.autoLearned)
             }
+            var objects: [ObjectDetection] = []
+            if objectsOn {
+                feed.objectTracker.predict()
+                objects = feed.objectTracker.visible(hidden: hidden)
+            }
             return OverlayState(
                 frameSize: CGSize(width: CVPixelBufferGetWidth(frame), height: CVPixelBufferGetHeight(frame)),
-                faces: faces, objects: feed.objects, objectsEnabled: objectsOn,
+                faces: faces, objects: objects, objectsEnabled: objectsOn,
                 fps: feed.fps, detectionsPerSecond: feed.detectionsPerSecond, peopleCount: 0, learnedCount: learned)
         }
         state.peopleCount = store.count
@@ -312,10 +312,11 @@ final class Engine: @unchecked Sendable {
     }
 
     private func detectObjects(_ frame: CVPixelBuffer, _ feed: Feed) {
-        let (hidden, confidence, on) = schedule.withLock { (hiddenObjects, objectConfidence, objectsOn) }
-        guard on, let found = try? objectDetector.detect(frame, minConfidence: confidence) else { return }
-        let shown = found.filter { !hidden.contains($0.label) }
-        feed.lock.withLock { feed.objects = shown }
+        let (confidence, on) = schedule.withLock { (objectConfidence, objectsOn) }
+        // Everything the model found goes to the tracker, weak detections included.
+        guard on, let found = try? objectDetector.detect(frame, minConfidence: ObjectDetector.lowestConfidence) else { return }
+        let size = CGSize(width: CVPixelBufferGetWidth(frame), height: CVPixelBufferGetHeight(frame))
+        feed.lock.withLock { feed.objectTracker.update(found, frame: size, threshold: confidence) }
     }
 
     // MARK: Labelling

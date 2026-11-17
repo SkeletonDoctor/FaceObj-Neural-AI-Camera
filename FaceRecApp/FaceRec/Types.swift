@@ -58,6 +58,10 @@ struct ObjectDetection: Sendable {
     var box: Box
     var label: String
     var confidence: Float
+    /// The tracker's number for this object; 0 for a raw detection.
+    var id = 0
+    /// True while the detector has lost the object and its box is being held in place.
+    var held = false
 }
 
 struct PersonStats: Identifiable, Sendable {

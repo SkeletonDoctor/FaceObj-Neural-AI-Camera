@@ -57,6 +57,10 @@ enum Main {
             }
             dispatchMain()
         }
+        // `FaceRec --object-test [address] [seconds]` checks the object tracker.
+        if let flag = CommandLine.arguments.firstIndex(of: "--object-test") {
+            ObjectTest.run(Array(CommandLine.arguments[(flag + 1)...]))
+        }
         // `FaceRec --stream-test rtsp://camera/stream` connects to a network camera without the window.
         if let flag = CommandLine.arguments.firstIndex(of: "--stream-test") {
             StreamTest.run(Array(CommandLine.arguments[(flag + 1)...]))

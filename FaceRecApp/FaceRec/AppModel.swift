@@ -152,7 +152,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var cameraID: String?
     @Published private(set) var resolutions: [Camera.Resolution] = []
     @Published private(set) var mode: Camera.Mode?
-    @Published private(set) var objectsEnabled = false
+    /// Remembered between launches.
+    @Published private(set) var objectsEnabled = UserDefaults.standard.bool(forKey: "objectsEnabled")
     @Published private(set) var people: [PersonStats] = []
     @Published private(set) var toast: String?
     @Published var labelRequest: LabelRequest?
@@ -184,6 +185,7 @@ final class AppModel: ObservableObject {
             }
             self.engine = engine
             pushObjectFilter()
+            engine.objectsEnabled = objectsEnabled
             networkCameras = NetworkCameraStore.load()
             if !UserDefaults.standard.bool(forKey: "modeChosen") { showModeChooser = true }
             Updater.shared.start()
@@ -465,6 +467,7 @@ final class AppModel: ObservableObject {
     func toggleObjects() {
         guard let engine else { return }
         objectsEnabled.toggle()
+        UserDefaults.standard.set(objectsEnabled, forKey: "objectsEnabled")
         engine.objectsEnabled = objectsEnabled
         show("Object detection \(objectsEnabled ? "on" : "off")")
     }
