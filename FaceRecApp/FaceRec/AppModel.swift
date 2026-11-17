@@ -90,6 +90,17 @@ final class AppModel: ObservableObject {
     @Published var keepAwake: Bool = UserDefaults.standard.object(forKey: "keepAwake") as? Bool ?? true {
         didSet { UserDefaults.standard.set(keepAwake, forKey: "keepAwake"); updateKeepAwake() }
     }
+    /// Where alerts go: this Mac, ntfy, Telegram, a webhook.
+    @Published var alerts = AlertSettings.load() {
+        didSet {
+            guard alerts != oldValue else { return }
+            alerts.save()
+            if alerts.mac, !oldValue.mac { askForNotifications(notifyUnknown || notifyKnown) }
+        }
+    }
+    /// What happened the last time each outside service was used, for the settings page.
+    @Published private(set) var alertStatus: [AlertChannel: String] = [:]
+
     /// In security mode, also watch this Mac's own camera.
     @Published var includeMacCamera: Bool = UserDefaults.standard.bool(forKey: "includeMacCamera") {
         didSet {
@@ -270,7 +281,7 @@ final class AppModel: ObservableObject {
     }
 
     private func askForNotifications(_ turnedOn: Bool) {
-        guard turnedOn else { return }
+        guard turnedOn, alerts.mac else { return }
         Task {
             if !(await Notifier.shared.requestPermission()) {
                 notice = Notice(title: "Notifications are off", message: "To get alerts, allow notifications for FaceRec in System Settings › Notifications.")
@@ -292,10 +303,46 @@ final class AppModel: ObservableObject {
         let event = await eventLog.record(report, camera: camera)
         unseenEvents += 1
         guard report.feedID != Feed.localID else { return }     // alerts are for network cameras
-        if let name = event.name {
-            if notifyKnown { Notifier.shared.post(title: name, body: "Seen on \(camera)", picture: eventLog.url(event.face)) }
-        } else if notifyUnknown {
-            Notifier.shared.post(title: "Unknown person", body: "Seen on \(camera)", picture: eventLog.url(event.face))
+        guard event.name == nil ? notifyUnknown : notifyKnown else { return }
+        let title = event.name ?? "Unknown person", body = "Seen on \(camera)"
+        if alerts.mac { Notifier.shared.post(title: title, body: body, picture: eventLog.url(event.face)) }
+        // Outside services get the scene snapshot (or the face picture if there is none).
+        let picture = (eventLog.url(event.scene) ?? eventLog.url(event.face)).flatMap { try? Data(contentsOf: $0) }
+        deliver(AlertMessage(title: title, body: body, name: event.name, camera: camera, date: event.date, picture: picture))
+    }
+
+    private func isOn(_ channel: AlertChannel) -> Bool {
+        switch channel {
+        case .ntfy: alerts.ntfyEnabled
+        case .telegram: alerts.telegramEnabled
+        case .webhook: alerts.webhookEnabled
+        }
+    }
+
+    /// Sends an alert through every outside service that is switched on and filled in.
+    private func deliver(_ message: AlertMessage) {
+        let settings = alerts
+        for channel in AlertChannel.allCases where isOn(channel) && AlertSender.isReady(channel, settings) {
+            Task {
+                do {
+                    try await AlertSender.send(message, to: channel, settings: settings)
+                    alertStatus[channel] = "Last alert sent at \(Date().formatted(date: .omitted, time: .shortened))."
+                } catch {
+                    alertStatus[channel] = "Last alert failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    /// The Send Test button: sends a harmless message through one service and reports the result.
+    func sendTestAlert(_ channel: AlertChannel) async -> (ok: Bool, message: String) {
+        let message = AlertMessage(title: "FaceRec test alert", body: "Alerts from FaceRec will arrive here.",
+                                   name: nil, camera: "Test", date: Date(), picture: nil, isTest: true)
+        do {
+            try await AlertSender.send(message, to: channel, settings: alerts)
+            return (true, "Sent. Check that it arrived.")
+        } catch {
+            return (false, error.localizedDescription)
         }
     }
 

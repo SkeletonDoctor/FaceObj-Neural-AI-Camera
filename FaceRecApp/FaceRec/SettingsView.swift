@@ -1,3 +1,4 @@
+import CoreImage.CIFilterBuiltins
 import SwiftUI
 
 struct SettingsView: View {
@@ -5,9 +6,10 @@ struct SettingsView: View {
         TabView {
             CameraSettings().tabItem { Label("Network Cameras", systemImage: "video") }
             SecuritySettings().tabItem { Label("Security", systemImage: "shield.lefthalf.filled") }
+            AlertSettingsView().tabItem { Label("Alerts", systemImage: "bell.badge") }
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
         }
-        .frame(width: 600, height: 500)
+        .frame(width: 620, height: 560)
     }
 }
 
@@ -128,10 +130,8 @@ private struct SecuritySettings: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Toggle("Also watch this Mac's camera in Security mode", isOn: $model.includeMacCamera)
             }
-            Section("Alerts") {
-                Toggle("Notify me when an unknown person appears", isOn: $model.notifyUnknown)
-                Toggle("Notify me when someone I have named appears", isOn: $model.notifyKnown)
-                Text("Everyone who appears on a network camera is added to the History list with a picture, whether or not alerts are on. The same person on the same camera is logged at most once every 2 minutes (unknown people: every 30 seconds).")
+            Section("History") {
+                Text("Everyone who appears on a network camera is added to the History list with a picture. The same person on the same camera is logged at most once every 2 minutes (unknown people: every 30 seconds). Alerts are set up in the Alerts tab.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
@@ -141,6 +141,153 @@ private struct SecuritySettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// When to alert and where to send it.
+private struct AlertSettingsView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        Form {
+            Section("Alert me when") {
+                Toggle("An unknown person appears on a network camera", isOn: $model.notifyUnknown)
+                Toggle("Someone I have named appears on a network camera", isOn: $model.notifyKnown)
+            }
+            Section("On this Mac") {
+                Toggle("Show a macOS notification", isOn: $model.alerts.mac)
+            }
+            Section {
+                Toggle("Send to ntfy", isOn: $model.alerts.ntfyEnabled)
+                if model.alerts.ntfyEnabled {
+                    TextField("Server", text: $model.alerts.ntfyServer, prompt: Text("https://ntfy.sh"))
+                    LabeledContent("Topic") {
+                        HStack(spacing: 6) {
+                            TextField("Topic", text: $model.alerts.ntfyTopic, prompt: Text("a long, hard-to-guess name")).labelsHidden()
+                            Button("Suggest") { model.alerts.ntfyTopic = AlertSettings.randomTopic() }
+                        }
+                    }
+                    SecureField("Access token", text: $model.alerts.ntfyToken, prompt: Text("Only if your server needs one"))
+                    PhoneSetup(server: model.alerts.ntfyServer, topic: model.alerts.ntfyTopic)
+                    TestRow(channel: .ntfy)
+                }
+            } header: {
+                Text("Phone push with ntfy")
+            }
+            Section {
+                Toggle("Send to Telegram", isOn: $model.alerts.telegramEnabled)
+                if model.alerts.telegramEnabled {
+                    SecureField("Bot token", text: $model.alerts.telegramToken, prompt: Text("From @BotFather"))
+                    TextField("Chat ID", text: $model.alerts.telegramChat, prompt: Text("Your chat or group ID"))
+                    Text("Create a bot with @BotFather in Telegram and send your bot a message first, so it is allowed to write to you. The chat ID is a number; @userinfobot can tell you yours.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    TestRow(channel: .telegram)
+                }
+            } header: {
+                Text("Telegram")
+            }
+            Section {
+                Toggle("Send to a webhook", isOn: $model.alerts.webhookEnabled)
+                if model.alerts.webhookEnabled {
+                    TextField("Address", text: $model.alerts.webhookURL, prompt: Text("https://example.com/hook"))
+                    Text("FaceRec sends a POST with JSON: app, event, known, name, camera, time, title, message, test, and image_jpeg_base64 when a picture is included. Works with Home Assistant, n8n, Zapier, IFTTT and similar.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    TestRow(channel: .webhook)
+                }
+            } header: {
+                Text("Webhook")
+            }
+            Section("Pictures") {
+                Toggle("Include a snapshot of the scene", isOn: $model.alerts.includePicture)
+                Text("ntfy, Telegram and webhooks send the alert, and the snapshot if this is on, through that service and off this Mac. macOS notifications stay on this Mac. Tokens and addresses are stored in a file only your user account can read.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .autocorrectionDisabled()
+    }
+
+    /// Three steps to get alerts on a phone, with a code the phone can scan.
+    private struct PhoneSetup: View {
+        let server: String
+        let topic: String
+
+        /// The link the ntfy app opens to subscribe to this topic.
+        private var link: String? {
+            let topic = topic.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !topic.isEmpty, let url = URL(string: server.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  let host = url.host else { return nil }
+            let port = url.port.map { ":\($0)" } ?? ""
+            let path = topic.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? topic
+            return "ntfy://\(host)\(port)/\(path)" + (url.scheme == "http" ? "?secure=false" : "")
+        }
+
+        var body: some View {
+            HStack(alignment: .top, spacing: 14) {
+                if let link, let code = Self.qrCode(link) {
+                    Image(nsImage: code).interpolation(.none).resizable().frame(width: 116, height: 116)
+                        .padding(6).background(.white, in: RoundedRectangle(cornerRadius: 8))
+                        .accessibilityLabel("QR code that subscribes the ntfy app to this topic")
+                } else {
+                    RoundedRectangle(cornerRadius: 8).fill(.quaternary).frame(width: 128, height: 128)
+                        .overlay(Text("Enter a topic\nto get a code").font(.caption).multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary))
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Get alerts on your phone").font(.subheadline.weight(.semibold))
+                    Label("Install the free ntfy app (App Store or Google Play).", systemImage: "1.circle")
+                    Label("Scan this code with the phone's camera. It opens ntfy and subscribes to your topic.", systemImage: "2.circle")
+                    Label("Press Send Test below and check that the phone shows it.", systemImage: "3.circle")
+                    Text("Anyone who knows the topic name can read your alerts, so keep it long and random, and do not share the code.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, 4)
+        }
+
+        private static func qrCode(_ text: String) -> NSImage? {
+            let filter = CIFilter.qrCodeGenerator()
+            filter.message = Data(text.utf8)
+            filter.correctionLevel = "M"
+            guard let output = filter.outputImage,
+                  let image = CIContext().createCGImage(output, from: output.extent) else { return nil }
+            return NSImage(cgImage: image, size: NSSize(width: output.extent.width, height: output.extent.height))
+        }
+    }
+
+    /// A Send Test button with its result, and what happened to the last real alert.
+    private struct TestRow: View {
+        let channel: AlertChannel
+        @EnvironmentObject private var model: AppModel
+        @State private var sending = false
+        @State private var result: (ok: Bool, message: String)?
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Button("Send Test") {
+                        sending = true
+                        result = nil
+                        Task {
+                            result = await model.sendTestAlert(channel)
+                            sending = false
+                        }
+                    }
+                    .disabled(sending || !AlertSender.isReady(channel, model.alerts))
+                    if sending { ProgressView().controlSize(.small) }
+                    if let result {
+                        Label(result.message, systemImage: result.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .font(.callout).foregroundStyle(result.ok ? .green : .orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if let status = model.alertStatus[channel] {
+                    Text(status).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 }
 
