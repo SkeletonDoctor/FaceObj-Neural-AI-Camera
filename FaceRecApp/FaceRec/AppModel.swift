@@ -101,6 +101,21 @@ final class AppModel: ObservableObject {
     /// What happened the last time each outside service was used, for the settings page.
     @Published private(set) var alertStatus: [AlertChannel: String] = [:]
 
+    // MARK: Recording
+
+    @Published var recordingSettings = RecordingSettings.load() {
+        didSet {
+            guard recordingSettings != oldValue else { return }
+            recordingSettings.save()
+            restartRecorders()
+        }
+    }
+    /// The cameras being recorded now.
+    @Published private(set) var recordingIDs: Set<String> = []
+    /// "Record everything": cameras added later are recorded too.
+    @Published private(set) var recordAll = false
+    @Published private(set) var recordings: [RecordingFile] = []
+
     /// In security mode, also watch this Mac's own camera.
     @Published var includeMacCamera: Bool = UserDefaults.standard.bool(forKey: "includeMacCamera") {
         didSet {
@@ -191,6 +206,7 @@ final class AppModel: ObservableObject {
             Updater.shared.start()
             refreshPeople()
             await applyCameraMode()
+            if recordingSettings.startOnLaunch { toggleRecordingAll() }
         } catch {
             startupError = error.localizedDescription
         }
@@ -395,6 +411,7 @@ final class AppModel: ObservableObject {
         }
         if !feeds.contains(where: { $0.id == selectedFeedID }) { selectedFeedID = feeds.first?.id ?? Feed.localID }
         updateKeepAwake()
+        syncRecording()
     }
 
     // Camera editing from the main window.
@@ -515,6 +532,113 @@ final class AppModel: ObservableObject {
 
     func saveOnQuit() {
         try? engine?.store.save()
+        // Close the recordings properly (they are crash-safe anyway, to within a few seconds).
+        guard let engine, !recordingIDs.isEmpty else { return }
+        let group = DispatchGroup()
+        for model in feeds where recordingIDs.contains(model.id) {
+            group.enter()
+            engine.stopRecording(model.feed) { group.leave() }
+        }
+        _ = group.wait(timeout: .now() + 3)
+    }
+
+    // MARK: Recording controls
+
+    /// The toolbar button: record every camera, or stop them all.
+    func toggleRecordingAll() {
+        if recordingIDs.isEmpty {
+            guard recordingFolderIsUsable() else { return }
+            recordAll = true
+            syncRecording()
+            show(recordingIDs.isEmpty ? "No camera to record" : "Recording \(recordingIDs.count) camera\(recordingIDs.count == 1 ? "" : "s")")
+        } else {
+            recordAll = false
+            for model in feeds where recordingIDs.contains(model.id) { engine?.stopRecording(model.feed) }
+            recordingIDs = []
+            show("Recording stopped")
+            refreshRecordingsSoon()
+        }
+    }
+
+    /// A tile's record button: one camera on or off.
+    func toggleRecording(id: String) {
+        guard let engine, let model = feeds.first(where: { $0.id == id }) else { return }
+        if recordingIDs.contains(id) {
+            engine.stopRecording(model.feed)
+            recordingIDs.remove(id)
+            recordAll = false
+            refreshRecordingsSoon()
+        } else if recordingFolderIsUsable() {
+            engine.startRecording(model.feed, camera: model.name, settings: recordingSettings)
+            recordingIDs.insert(id)
+        }
+    }
+
+    /// Keeps the recorders in step with the cameras on screen.
+    private func syncRecording() {
+        guard let engine else { return }
+        recordingIDs.formIntersection(feeds.map(\.id))
+        guard recordAll else { return }
+        for model in feeds where !recordingIDs.contains(model.id) {
+            engine.startRecording(model.feed, camera: model.name, settings: recordingSettings)
+            recordingIDs.insert(model.id)
+        }
+    }
+
+    /// New settings apply from a fresh file.
+    private func restartRecorders() {
+        guard let engine else { return }
+        for model in feeds where recordingIDs.contains(model.id) {
+            engine.startRecording(model.feed, camera: model.name, settings: recordingSettings)
+        }
+    }
+
+    private func recordingFolderIsUsable() -> Bool {
+        let folder = recordingSettings.folder
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            guard FileManager.default.isWritableFile(atPath: folder.path) else { throw CocoaError(.fileWriteNoPermission) }
+            return true
+        } catch {
+            notice = Notice(title: "Cannot record", message: "FaceRec cannot write to \(folder.path). Choose another folder in Settings › Recording.")
+            return false
+        }
+    }
+
+    func refreshRecordings() {
+        let folder = recordingSettings.folder
+        Task {
+            let found = await Task.detached(priority: .utility) { RecordingLibrary.files(in: folder) }.value
+            recordings = found
+        }
+    }
+
+    private func refreshRecordingsSoon() {
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            refreshRecordings()
+        }
+    }
+
+    /// True while this file is still being written.
+    func isBeingWritten(_ file: RecordingFile) -> Bool {
+        engine?.activeRecordings().contains(file.url) ?? false
+    }
+
+    func deleteRecording(_ file: RecordingFile) {
+        guard !isBeingWritten(file) else { return }
+        try? FileManager.default.trashItem(at: file.url, resultingItemURL: nil)
+        refreshRecordings()
+    }
+
+    func chooseRecordingFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = recordingSettings.folder
+        panel.prompt = "Record Here"
+        if panel.runModal() == .OK, let url = panel.url { recordingSettings.folder = url }
     }
 
     func refreshPeople() {

@@ -37,7 +37,8 @@ struct ContentView: View {
         }
         .overlay(alignment: .topLeading) {
             if model.engine != nil, !showsGrid, let feed = model.selectedFeed {
-                StatusBar(model: feed.status, name: model.feeds.count > 1 ? feed.name : nil).padding(14)
+                StatusBar(model: feed.status, name: model.feeds.count > 1 ? feed.name : nil,
+                          recording: model.recordingIDs.contains(feed.id)).padding(14)
             }
         }
         .overlay(alignment: .bottom) {
@@ -68,6 +69,7 @@ struct ContentView: View {
             case "l": sideTab = .people; togglePeople(!(showPeople && sideTab == .people))
             case "e", "h": sideTab = .events; model.unseenEvents = 0; togglePeople(true)
             case "g": if model.feeds.count > 1 { model.gridMode.toggle() }
+            case "r": model.toggleRecordingAll()
             default: return .ignored
             }
             return .handled
@@ -153,6 +155,14 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .help("Name the largest face in view (A)")
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button { model.toggleRecordingAll() } label: {
+                Label(model.recordingIDs.isEmpty ? "Record" : "Stop", systemImage: model.recordingIDs.isEmpty ? "record.circle" : "stop.circle.fill")
+                    .labelStyle(.titleAndIcon)
+                    .foregroundStyle(model.recordingIDs.isEmpty ? Color.primary : .red)
+            }
+            .help(model.recordingIDs.isEmpty ? "Record every camera to video, with the overlays (R)" : "Stop recording (R)")
         }
         if model.feeds.count > 1 {
             ToolbarItem(placement: .primaryAction) {
@@ -303,11 +313,15 @@ struct CameraTile: View {
 
     var body: some View {
         FeedView(feed: feed)
-            .overlay(alignment: .topLeading) { TileHeader(feed: feed).padding(8) }
+            .overlay(alignment: .topLeading) { TileHeader(feed: feed, recording: model.recordingIDs.contains(feed.id)).padding(8) }
             .overlay(alignment: .bottomLeading) { TileStats(status: feed.status).padding(8) }
             .overlay(alignment: .topTrailing) {
                 if hovering {
                     HStack(spacing: 6) {
+                        tileButton(model.recordingIDs.contains(feed.id) ? "stop.fill" : "record.circle",
+                                   help: model.recordingIDs.contains(feed.id) ? "Stop recording this camera" : "Record this camera") {
+                            model.toggleRecording(id: feed.id)
+                        }
                         tileButton("arrow.up.left.and.arrow.down.right", help: "Show this camera alone") {
                             model.selectedFeedID = feed.id
                             model.gridMode = false
@@ -381,6 +395,7 @@ private struct AddCameraTile: View {
 /// A tile's name with a dot for its connection: green live, amber connecting, red failing.
 private struct TileHeader: View {
     @ObservedObject var feed: FeedModel
+    var recording = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -388,6 +403,11 @@ private struct TileHeader: View {
             Image(systemName: feed.isLocal ? "laptopcomputer" : "video.fill").font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.7))
             Text(feed.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+            if recording {
+                Text("REC").font(.system(size: 10, weight: .heavy)).foregroundStyle(.white)
+                    .padding(.horizontal, 5).frame(height: 15).background(.red, in: Capsule())
+                    .help("This camera is being recorded")
+            }
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 9).frame(height: 24)
@@ -430,11 +450,13 @@ struct StatusBar: View {
     @ObservedObject var model: StatusModel
     /// The camera's name, shown when there is more than one.
     var name: String?
+    var recording = false
 
     var body: some View {
         let s = model.summary
         HStack(spacing: 8) {
             if let name { chip(name, symbol: "video.fill", tint: .white, help: "The camera on screen") }
+            if recording { chip("REC", symbol: "record.circle.fill", tint: .red, help: "This camera is being recorded") }
             chip("\(s.fps) fps", symbol: "circle.fill", tint: s.fps > 0 ? .red : .secondary, help: "Camera frame rate")
             chip("\(s.detectionsPerSecond)/s", symbol: "bolt.fill", tint: .yellow, help: "Frames analysed per second on the Neural Engine")
             chip("\(s.faces)", symbol: "face.smiling", tint: .white, help: "Faces in view")
@@ -573,7 +595,7 @@ struct AngleGrid: View {
 
 /// The side panel: known people, and the history of faces seen.
 struct SidePanel: View {
-    enum Tab { case people, events }
+    enum Tab { case people, events, recordings }
     @Binding var tab: Tab
     @EnvironmentObject private var model: AppModel
 
@@ -582,6 +604,7 @@ struct SidePanel: View {
             Picker("Show", selection: $tab) {
                 Text("People").tag(Tab.people)
                 Text(model.unseenEvents > 0 ? "History (\(model.unseenEvents))" : "History").tag(Tab.events)
+                Text("Recordings").tag(Tab.recordings)
             }
             .pickerStyle(.segmented).labelsHidden()
             .padding(.horizontal, 12).padding(.vertical, 10)
@@ -589,9 +612,69 @@ struct SidePanel: View {
             switch tab {
             case .people: PeoplePanel()
             case .events: EventsPanel(log: model.eventLog)
+            case .recordings: RecordingsPanel()
             }
         }
         .onChange(of: tab) { _, new in if new == .events { model.unseenEvents = 0 } }
+    }
+}
+
+/// Recorded video, newest first. Double-click plays a file.
+private struct RecordingsPanel: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        let total = model.recordings.reduce(Int64(0)) { $0 + $1.bytes }
+        VStack(spacing: 0) {
+            if model.recordings.isEmpty {
+                ContentUnavailableView {
+                    Label("No recordings yet", systemImage: "record.circle")
+                } description: {
+                    Text("Press Record in the toolbar to save the cameras to video, with the boxes and names drawn into the picture.")
+                }
+            } else {
+                List(model.recordings) { file in
+                    let live = model.isBeingWritten(file)
+                    HStack(spacing: 10) {
+                        Image(systemName: live ? "record.circle.fill" : "film")
+                            .font(.system(size: 18)).foregroundStyle(live ? Color.red : .secondary).frame(width: 24)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(file.camera).font(.body.weight(.semibold)).lineLimit(1)
+                            Text("\(file.started.formatted(.dateTime.month(.abbreviated).day().hour().minute())) · \(ByteCountFormatter.string(fromByteCount: file.bytes, countStyle: .file))\(live ? " · recording" : "")")
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 3)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { NSWorkspace.shared.open(file.url) }
+                    .contextMenu {
+                        Button("Play", systemImage: "play") { NSWorkspace.shared.open(file.url) }
+                        Button("Show in Finder", systemImage: "folder") { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
+                        Divider()
+                        Button("Move to Trash", systemImage: "trash", role: .destructive) { model.deleteRecording(file) }.disabled(live)
+                    }
+                    .help("Double-click to play")
+                }
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
+            }
+            Divider()
+            HStack {
+                Text("\(ByteCountFormatter.string(fromByteCount: total, countStyle: .file)) of \(Int(model.recordingSettings.limitGB)) GB")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .help("Oldest recordings are deleted when the limit is reached")
+                Spacer()
+                Button("Show Folder") { NSWorkspace.shared.open(model.recordingSettings.folder) }.controlSize(.small)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+        }
+        .task {
+            while !Task.isCancelled {
+                model.refreshRecordings()
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
     }
 }
 
