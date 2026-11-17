@@ -7,9 +7,10 @@ struct SettingsView: View {
             CameraSettings().tabItem { Label("Network Cameras", systemImage: "video") }
             SecuritySettings().tabItem { Label("Security", systemImage: "shield.lefthalf.filled") }
             AlertSettingsView().tabItem { Label("Alerts", systemImage: "bell.badge") }
+            RecordingSettingsView().tabItem { Label("Recording", systemImage: "record.circle") }
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
         }
-        .frame(width: 620, height: 560)
+        .frame(width: 660, height: 560)
     }
 }
 
@@ -141,6 +142,66 @@ private struct SecuritySettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// Where recordings go, when to record, and how much to keep.
+private struct RecordingSettingsView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        Form {
+            Section("Where") {
+                LabeledContent("Folder") {
+                    HStack(spacing: 8) {
+                        Text(model.recordingSettings.folder.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                            .lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary).textSelection(.enabled)
+                        Button("Choose…") { model.chooseRecordingFolder() }
+                        Button("Show") { NSWorkspace.shared.open(model.recordingSettings.folder) }
+                    }
+                }
+                Picker("Keep at most", selection: $model.recordingSettings.limitGB) {
+                    ForEach([5.0, 10, 20, 50, 100, 250, 500], id: \.self) { Text("\(Int($0)) GB").tag($0) }
+                }
+                Text("When the limit is reached the oldest recordings are deleted. Each camera is saved in its own folder, one file per 10 minutes.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("What") {
+                Picker("Record", selection: $model.recordingSettings.mode) {
+                    ForEach(RecordingSettings.Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                Picker("Frames per second", selection: $model.recordingSettings.framesPerSecond) {
+                    ForEach([5, 10, 15, 30], id: \.self) { Text("\($0)").tag($0) }
+                }
+                Picker("Quality", selection: $model.recordingSettings.quality) {
+                    ForEach(RecordingSettings.Quality.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                Text(estimate).font(.caption).foregroundStyle(.secondary)
+            }
+            Section("In the picture") {
+                Toggle("Draw the face and object boxes into the recording", isOn: $model.recordingSettings.drawOverlays)
+                Toggle("Draw the camera name, date and time", isOn: $model.recordingSettings.drawTimestamp)
+                Text("Object boxes are only recorded while object detection is on. What is drawn becomes part of the video and cannot be removed later.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle("Start recording when FaceRec opens", isOn: $model.recordingSettings.startOnLaunch)
+                Text("Closing the FaceRec window quits the app and stops recording. Check the rules on recording where you live.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    /// A rough storage figure for the chosen quality.
+    private var estimate: String {
+        let s = model.recordingSettings
+        let megabits = s.quality == .high ? 6.0 : 3.0
+        let perHour = megabits / 8 * 3600 / 1000      // GB per hour of 1080p video
+        let hours = s.limitGB / perHour
+        let detail = s.mode == .always ? "" : " Recording only on activity uses less."
+        return String(format: "About %.1f GB per camera per hour at 1080p, so %d GB holds roughly %.0f camera-hours.%@",
+                      perHour, Int(s.limitGB), hours, detail)
     }
 }
 

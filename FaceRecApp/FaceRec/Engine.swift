@@ -44,6 +44,7 @@ final class Feed: @unchecked Sendable {
     fileprivate let lock = NSLock()
     fileprivate let tracker = FaceTracker()
     fileprivate let objectTracker = ObjectTracker()
+    fileprivate var recorder: FeedRecorder?
     fileprivate var windowStart = CFAbsoluteTimeGetCurrent()
     fileprivate var frameCount = 0
     fileprivate var detectionCount = 0
@@ -166,7 +167,36 @@ final class Engine: @unchecked Sendable {
             feed.pendingFaces = nil
             feed.pendingObjects = nil
         }
+        stopRecording(feed)
         feed.frames.set(nil)
+    }
+
+    // MARK: Recording
+
+    /// Starts recording a camera. Any recording already running for it is finished first.
+    func startRecording(_ feed: Feed, camera: String, settings: RecordingSettings) {
+        let recorder = FeedRecorder(camera: camera, settings: settings)
+        let old: FeedRecorder? = feed.lock.withLock {
+            let previous = feed.recorder
+            feed.recorder = recorder
+            return previous
+        }
+        old?.stop()
+    }
+
+    func stopRecording(_ feed: Feed, completion: (@Sendable () -> Void)? = nil) {
+        let old: FeedRecorder? = feed.lock.withLock {
+            let previous = feed.recorder
+            feed.recorder = nil
+            return previous
+        }
+        if let old { old.stop(completion: completion) } else { completion?() }
+    }
+
+    /// The files being written right now.
+    func activeRecordings() -> Set<URL> {
+        let all = schedule.withLock { feeds }
+        return Set(all.compactMap { feed in feed.lock.withLock { feed.recorder }?.currentFile })
     }
 
     // MARK: Frames
@@ -219,6 +249,8 @@ final class Engine: @unchecked Sendable {
         state.peopleCount = store.count
         let callback = feed.onOverlay
         let published = state
+        // The recorder gets the same frame and the same overlays the window shows.
+        feed.lock.withLock { feed.recorder }?.append(frame, state: published)
         DispatchQueue.main.async { callback?(published) }
     }
 

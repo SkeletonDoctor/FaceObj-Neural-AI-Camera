@@ -38,6 +38,7 @@ The switch at the top of the window picks the mode, and FaceRec asks which you w
 | `A` | Name Face | Name the largest face in view (shows its picture; pick an existing person to add to them) |
 | | Camera and quality menus | This Mac mode: choose the camera, its resolution and its frame rate |
 | | Add Camera | Security mode: add a network camera |
+| `R` | Record | Record every camera to video with the overlays, or stop |
 | `G` | Grid | With several cameras: show every camera, or only the selected one |
 | `O` | Objects | Turn object detection on or off; the button opens the object filter |
 | `L` | People and History | Known people, with their picture and learned angles |
@@ -118,6 +119,18 @@ Choose **Security** at the top of the window to use FaceRec as a camera monitor.
 
 Closing the window quits the app and stops watching. Check the rules on camera recording and face recognition where you live, and tell people they are on camera.
 
+## Recording
+
+**Record** in the toolbar (or `R`) saves every camera to video like a DVR; a tile's record button does one camera. Recorded cameras show a red REC badge.
+
+- **Overlays in the picture.** The face brackets and names, the object boxes, and the camera name, date and time are drawn into the video, so a recording shows what the app saw. Both can be turned off.
+- **Files.** One folder per camera and day, one file per 10 minutes, in `~/Movies/FaceRec` unless you choose another folder. HEVC video up to 1080p, written so that a crash or power cut loses only the last few seconds.
+- **Storage.** About 1.4 GB per camera per hour at the standard quality and 15 frames per second. When the limit you set is reached (20 GB by default), the oldest recordings are deleted.
+- **Only when something happens.** Settings › Recording can record only while a person or object is in view, plus 5 seconds after.
+- **Playback.** The side panel's Recordings tab lists the files; double-click plays one.
+
+Object boxes are only recorded while object detection is on. Check the rules on recording where you live.
+
 ## Alerts on your phone
 
 Settings › Alerts chooses when to alert and where to send it. Each outside service is off until you turn it on, and has a **Send Test** button.
@@ -143,7 +156,7 @@ After a person is named once, the app keeps learning them:
 
 ## Privacy
 
-Video never leaves the Mac. The one exception is opt-in: if you turn on ntfy, Telegram or a webhook in Settings › Alerts, each alert (and its snapshot, unless you turn pictures off) is sent through that service. Everything is stored only in `~/Library/Application Support/FaceRec/`: `faces.json` holds the face embeddings, `avatars/` one small picture per person, and `cameras.json` the network camera addresses (including any passwords in them; the file is readable only by your user account), and `events/` the face history with its pictures and, for unknown faces, the captured views. Delete that folder to erase everything the app has learned.
+Video never leaves the Mac. The one exception is opt-in: if you turn on ntfy, Telegram or a webhook in Settings › Alerts, each alert (and its snapshot, unless you turn pictures off) is sent through that service. Everything is stored only in `~/Library/Application Support/FaceRec/`: `faces.json` holds the face embeddings, `avatars/` one small picture per person, and `cameras.json` the network camera addresses (including any passwords in them; the file is readable only by your user account), and `events/` the face history with its pictures and, for unknown faces, the captured views. Recordings, if you make any, go to `~/Movies/FaceRec` or the folder you choose. Delete that folder to erase everything the app has learned.
 
 ## How it works
 
@@ -213,6 +226,7 @@ The built binary is at `build/Build/Products/Release/FaceRec.app/Contents/MacOS/
 | `FaceRec --benchmark pairs.tsv` | Measures accuracy on labelled pairs, one per line: `imageA<TAB>imageB<TAB>1` (same person) or `0` |
 | `FaceRec --render <dir> photo.jpg` | Draws the interface over a photo into `video.png` and `people.png` |
 | `FaceRec --stream-test <address> [seconds]` | Connects to a network camera, then reports frames received, picture size and faces found. Set `FACEREC_RTSP_DEBUG=1` to print the RTSP conversation |
+| `FaceRec --record-test <address> <seconds> <folder>` | Records a network camera with object detection on, reads the file back and saves one of its frames |
 | `FaceRec --object-test [address] [seconds]` | Runs the object tracker's simulated cases and, given a camera, counts box flicker with and without tracking |
 | `FaceRec --alert-test [picture.jpg]` | Sends a sample alert through every outside service switched on in Settings › Alerts and prints each result |
 | `FaceRec --update-test` | Runs one update check, download and install without the window. `FACEREC_UPDATE_FEED` can point it at a test release description; signatures are still checked |

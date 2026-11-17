@@ -57,6 +57,10 @@ enum Main {
             }
             dispatchMain()
         }
+        // `FaceRec --record-test <address> <seconds> <folder>` records a camera and checks the file.
+        if let flag = CommandLine.arguments.firstIndex(of: "--record-test") {
+            RecordTest.run(Array(CommandLine.arguments[(flag + 1)...]))
+        }
         // `FaceRec --object-test [address] [seconds]` checks the object tracker.
         if let flag = CommandLine.arguments.firstIndex(of: "--object-test") {
             ObjectTest.run(Array(CommandLine.arguments[(flag + 1)...]))
