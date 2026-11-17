@@ -41,6 +41,12 @@ final class RTSPSource: StreamSource, @unchecked Sendable {
     private var keepAliveEvery = 25.0
     private var lastKeepAlive = Date()
 
+    /// `FACEREC_RTSP_DEBUG=1` prints the conversation with the camera, for diagnosing one that will not connect.
+    private static let debug = ProcessInfo.processInfo.environment["FACEREC_RTSP_DEBUG"] != nil
+    private func log(_ text: @autoclosure () -> String) {
+        if Self.debug { print("rtsp: " + text()) }
+    }
+
     private struct Response {
         var status: Int
         var headers: [String: String]     // lower-cased names
@@ -89,6 +95,7 @@ final class RTSPSource: StreamSource, @unchecked Sendable {
         self.connection = connection
         connection.stateUpdateHandler = { [weak self] state in
             guard let self, self.generation == mine else { return }
+            self.log("connection \(state)")
             switch state {
             case .ready:
                 self.receive(mine)
@@ -106,7 +113,9 @@ final class RTSPSource: StreamSource, @unchecked Sendable {
         timer.schedule(deadline: .now() + 2, repeating: 2)
         timer.setEventHandler { [weak self] in
             guard let self, self.generation == mine else { return }
-            if Date().timeIntervalSince(self.lastData) > 10 {
+            // Some servers send nothing until the stream's next keyframe, which can be
+            // many seconds away, so starting up is given longer than a stall.
+            if Date().timeIntervalSince(self.lastData) > (self.live ? 10 : 30) {
                 self.fail(self.live ? "The camera stopped sending video." : "The camera did not answer.")
             } else if self.sessionID != nil, Date().timeIntervalSince(self.lastKeepAlive) > self.keepAliveEvery {
                 self.lastKeepAlive = Date()
@@ -264,8 +273,10 @@ final class RTSPSource: StreamSource, @unchecked Sendable {
         for (name, value) in headers { text += "\(name): \(value)\r\n" }
         text += "\r\n"
 
+        log("> \(method) \(uri)")
         waiting[cseq] = { [weak self] response in
             guard let self else { return }
+            self.log("< \(response.status) for \(method), \(response.body.count) body bytes")
             // Asked to sign in: answer the challenge once.
             if response.status == 401, !retried, self.user != nil, let header = response.headers["www-authenticate"],
                self.accept(challenge: header) {
@@ -314,6 +325,7 @@ final class RTSPSource: StreamSource, @unchecked Sendable {
         connection?.receive(minimumIncompleteLength: 1, maximumLength: 262_144) { [weak self] data, _, finished, error in
             guard let self, self.generation == mine else { return }
             if let data, !data.isEmpty {
+                if !self.live { self.log("received \(data.count) bytes") }
                 self.lastData = Date()
                 self.inbox.append(data)
                 self.drainInbox()

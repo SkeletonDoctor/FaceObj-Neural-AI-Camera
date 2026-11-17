@@ -53,6 +53,17 @@ Faces the app does not know are kept in the History tab with a picture, the came
 
 The Objects button opens a panel to turn detection on, set how sure the detector must be before a box is shown, and choose which of the 80 kinds of object to show. **Security** keeps people, vehicles, pets and bags only.
 
+### Object tracking
+
+Objects are followed from frame to frame, so a box does not flicker or vanish while the object is still in view:
+
+- An object must be detected confidently to appear, but once it is tracked much weaker detections keep it.
+- If the detector misses a tracked object entirely, its box is held in place and drawn dashed. The longer the object has been seen, the longer it is held, up to 8 seconds.
+- An object at the edge of the picture and moving out is dropped within half a second; a moving object lost mid-picture is followed along its path briefly and let go after 1.5 seconds, so no empty box is left behind.
+- The label is the one the detector has given the object most, so it does not flip between similar kinds.
+
+On two live street cameras over 40 seconds, boxes that vanished and came back within 2 seconds went from 172 to 2 and from 54 to 0.
+
 ## Network cameras
 
 In Security mode, add IP cameras with **Add Camera** (in the toolbar, or the dashed tile in the grid). Pick the camera's make, type its address, user name and password, and FaceRec builds the stream address for Hikvision, Dahua, Amcrest, Reolink, TP-Link Tapo, Axis and Foscam cameras; or paste a full address. **Test Connection** shows the camera's picture before you add it. Cameras appear in a grid: click a tile to select it, double-click to show it alone, and hover for edit, switch-off and remove. Faces seen on any camera are recognised and learned the same way.
@@ -117,7 +128,7 @@ Video never leaves the Mac. The one exception is opt-in: if you turn on ntfy, Te
 | Video display | Metal, each frame drawn as it arrives, camera buffers wrapped as textures without copying |
 | Face detection + landmarks | Vision |
 | Face embedding | FaceNet (InceptionResnetV1, VGGFace2) on Core ML |
-| Object detection | YOLOv8n on Core ML |
+| Object detection | YOLOv8n on Core ML, followed by a Kalman tracker with two confidence thresholds |
 | Tracking | Kalman filter per face with Hungarian assignment |
 
 Core ML decides where each layer runs. On an M5, the self-test reports 99% of FaceNet's and 98% of YOLOv8n's layers on the Neural Engine.
@@ -175,7 +186,8 @@ The built binary is at `build/Build/Products/Release/FaceRec.app/Contents/MacOS/
 | `FaceRec --selftest photo.jpg …` | Loads the models, reports where they run, analyses the photos and exercises the learning and tracking logic |
 | `FaceRec --benchmark pairs.tsv` | Measures accuracy on labelled pairs, one per line: `imageA<TAB>imageB<TAB>1` (same person) or `0` |
 | `FaceRec --render <dir> photo.jpg` | Draws the interface over a photo into `video.png` and `people.png` |
-| `FaceRec --stream-test <address> [seconds]` | Connects to a network camera, then reports frames received, picture size and faces found |
+| `FaceRec --stream-test <address> [seconds]` | Connects to a network camera, then reports frames received, picture size and faces found. Set `FACEREC_RTSP_DEBUG=1` to print the RTSP conversation |
+| `FaceRec --object-test [address] [seconds]` | Runs the object tracker's simulated cases and, given a camera, counts box flicker with and without tracking |
 | `FaceRec --alert-test [picture.jpg]` | Sends a sample alert through every outside service switched on in Settings › Alerts and prints each result |
 | `FaceRec --update-test` | Runs one update check, download and install without the window. `FACEREC_UPDATE_FEED` can point it at a test release description; signatures are still checked |
 

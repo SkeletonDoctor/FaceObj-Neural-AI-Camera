@@ -19,7 +19,9 @@ struct OverlayView: View {
             for object in state.objects {
                 let colour = Self.objectColour(object.label)
                 let r = rect(object.box)
-                context.stroke(Path(roundedRect: r, cornerRadius: 6), with: .color(colour.opacity(0.9)), lineWidth: 1.5)
+                // A held box (the detector has lost the object for the moment) is drawn dashed.
+                context.stroke(Path(roundedRect: r, cornerRadius: 6), with: .color(colour.opacity(object.held ? 0.6 : 0.9)),
+                               style: StrokeStyle(lineWidth: 1.5, dash: object.held ? [5, 4] : []))
                 tag(title: object.label, detail: percent(object.confidence), accent: colour, learned: false,
                     anchor: r, inside: true, compact: true, bounds: fit, in: &context)
             }

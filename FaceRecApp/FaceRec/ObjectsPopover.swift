@@ -22,7 +22,7 @@ struct ObjectsPopover: View {
                     Spacer()
                     Text("\(Int((model.objectConfidence * 100).rounded()))%").monospacedDigit().foregroundStyle(.secondary)
                 }
-                Slider(value: $model.objectConfidence, in: Double(ObjectDetector.lowestConfidence)...0.9, step: 0.05)
+                Slider(value: $model.objectConfidence, in: Double(ObjectDetector.lowestThreshold)...0.9, step: 0.05)
                 Text("Lower shows more objects but more mistakes.").font(.caption).foregroundStyle(.secondary)
             }
 

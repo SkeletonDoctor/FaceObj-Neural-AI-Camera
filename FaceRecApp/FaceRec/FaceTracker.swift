@@ -5,7 +5,7 @@ import Foundation
 /// The Python filter is an 8-state constant-velocity model over (cx, cy, w, h).
 /// Its matrices never couple one axis to another, so it is exactly four
 /// independent position+velocity filters, which is how it is written here.
-private struct AxisFilter {
+struct AxisFilter {
     var position: Double
     var velocity: Double = 0
     // Covariance [[pp, pv], [pv, vv]]

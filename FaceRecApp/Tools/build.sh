@@ -11,5 +11,5 @@ if [ -n "$IDENTITY" ]; then
     SIGNING=(CODE_SIGN_IDENTITY="$IDENTITY" CODE_SIGN_STYLE=Manual)
 fi
 xcodebuild -project FaceRec.xcodeproj -scheme FaceRec -configuration Release \
-    -derivedDataPath build "${SIGNING[@]}" build | grep -E "error|warning: |BUILD" || true
+    -derivedDataPath build "${SIGNING[@]}" build | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
 echo "App: $(pwd)/build/Build/Products/Release/FaceRec.app"
