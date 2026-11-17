@@ -50,6 +50,7 @@ final class FaceStore: @unchecked Sendable {
 
     static let autoLearnMargin: Float = 0.10  // lead over the runner-up needed to self-learn
     static let redundantSimilarity: Float = 0.92
+    static let fullBinSimilarity: Float = 0.80
     static let staleAfter: TimeInterval = 7 * 24 * 3600
     static let chainSimilarity: Float = 0.45  // a new angle must be this close to a stored sample
     static let trackLearnQuality: Float = 0.30
@@ -154,7 +155,11 @@ final class FaceStore: @unchecked Sendable {
             let bin = FaceStore.angleBin(yaw: sample.yaw, pitch: sample.pitch)
             let sameAngle = embeddings.indices.filter { self.bin($0) == bin }
 
-            if let near = nearestSample(embedding, in: sameAngle), near.similarity > FaceStore.redundantSimilarity {
+            // A full angle bin only takes a clearly different view; anything closer
+            // competes with the sample it resembles instead of churning the bin.
+            let full = sameAngle.count >= FaceStore.samplesPerAngle
+            if let near = nearestSample(embedding, in: sameAngle),
+               near.similarity > (full ? FaceStore.fullBinSimilarity : FaceStore.redundantSimilarity) {
                 let stale = now - timestamps[near.index] > FaceStore.staleAfter
                 let better = sample.quality > qualities[near.index] + 0.05   // clearly sharper, not noise
                 guard better || (stale && sample.quality >= 0.8 * qualities[near.index]) else { return .redundant }

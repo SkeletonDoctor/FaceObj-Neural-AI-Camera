@@ -26,13 +26,31 @@ Because the app is not notarised, macOS asks for camera access again after each 
 |---|---|---|
 | `A` | Name Face | Name the largest face in frame (shows its picture; pick an existing person to add to them) |
 | | Camera and quality menus | Choose the camera, its resolution and its frame rate (remembered per camera) |
+| `G` | Grid | With network cameras added: show every camera, or only the selected one |
 | `O` | Objects | Toggle object detection (80 everyday object classes) |
 | `L` | People | Show known people with their picture and learned angles; hover a row for rename and delete |
 | `S` | More › Save Database | Save the database now |
 | | More › Enrol from Photos | Add a person from image files |
 | | More › Identify a Photo | Recognise the faces in an image file |
+| `⌘,` | More › Network Cameras and Settings | Add network cameras and change settings |
 
 On the video, a white bracket is an unknown face and a green one a recognised face (shading to orange for weaker matches). A spark next to a name means that frame was just learned. The capsules at the top-left show camera frame rate, frames analysed per second, faces in view, samples learned since launch and, when on, objects in view.
+
+## Network cameras
+
+Add IP cameras in **Settings › Network Cameras** by address. They appear in a grid beside this Mac's camera; click a tile to select it and double-click to show it alone. Faces seen on any camera are recognised and learned the same way.
+
+| Address | What it is |
+|---|---|
+| `rtsp://user:password@192.168.1.20:554/stream1` | RTSP camera, H.264 or H.265, decoded in hardware. `rtsps://` (TLS) also works |
+| `http://192.168.1.21/video.mjpg` | Motion-JPEG stream over HTTP |
+| `http://192.168.1.22/snapshot.jpg` | Still-picture address, fetched about twice a second |
+
+If the camera needs signing in, put the user name and password in the address. **Test Connection** in the editor tries the address and reports the picture size or what went wrong.
+
+Network cameras do not have to be analysed fully live. This Mac's camera always has priority and is analysed at its full frame rate. Network cameras are analysed in the gaps: often when the Mac is keeping up, less often as load rises, and never less often than the limit in **Settings › General** (1 second by default). Their video keeps playing at full speed either way, and each tile shows its video rate and how many frames per second are being analysed.
+
+RTSP is read over TCP only, so cameras that offer video only over UDP will not connect. Using a camera's lower-resolution stream keeps decoding cheap.
 
 ## Continuous learning
 
@@ -46,13 +64,14 @@ After a person is named once, the app keeps learning them:
 
 ## Privacy
 
-Video never leaves the Mac. Face data is stored only in `~/Library/Application Support/FaceRec/`: `faces.json` holds the embeddings and `avatars/` one small picture per person. Delete that folder to erase everything the app has learned.
+Video never leaves the Mac. Everything is stored only in `~/Library/Application Support/FaceRec/`: `faces.json` holds the face embeddings, `avatars/` one small picture per person, and `cameras.json` the network camera addresses (including any passwords in them; the file is readable only by your user account). Delete that folder to erase everything the app has learned.
 
 ## How it works
 
 | Stage | How it runs |
 |---|---|
 | Camera | AVFoundation, mirrored, at the resolution and frame rate you pick |
+| Network cameras | Native RTSP client with VideoToolbox hardware decoding; Motion-JPEG and stills over HTTP |
 | Video display | Metal, each frame drawn as it arrives, camera buffers wrapped as textures without copying |
 | Face detection + landmarks | Vision |
 | Face embedding | FaceNet (InceptionResnetV1, VGGFace2) on Core ML |
@@ -114,6 +133,7 @@ The built binary is at `build/Build/Products/Release/FaceRec.app/Contents/MacOS/
 | `FaceRec --selftest photo.jpg …` | Loads the models, reports where they run, analyses the photos and exercises the learning and tracking logic |
 | `FaceRec --benchmark pairs.tsv` | Measures accuracy on labelled pairs, one per line: `imageA<TAB>imageB<TAB>1` (same person) or `0` |
 | `FaceRec --render <dir> photo.jpg` | Draws the interface over a photo into `video.png` and `people.png` |
+| `FaceRec --stream-test <address> [seconds]` | Connects to a network camera, then reports frames received, picture size and faces found |
 | `FaceRec --update-test` | Runs one update check, download and install without the window. `FACEREC_UPDATE_FEED` can point it at a test release description; signatures are still checked |
 
 ## Licences
