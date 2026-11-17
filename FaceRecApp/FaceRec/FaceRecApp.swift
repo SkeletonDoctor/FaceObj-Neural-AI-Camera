@@ -33,6 +33,30 @@ enum Main {
             }
             dispatchMain()
         }
+        // `FaceRec --alert-test [picture.jpg]` sends a sample alert through every outside service
+        // that is switched on in Settings › Alerts, and prints what each one answered.
+        if let flag = CommandLine.arguments.firstIndex(of: "--alert-test") {
+            let picture = CommandLine.arguments.dropFirst(flag + 1).first.flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) }
+            Task.detached {
+                let settings = AlertSettings.load()
+                for (name, title) in [(String?.none, "Unknown person"), ("Zoë Nuñez", "Zoë Nuñez")] {
+                    let message = AlertMessage(title: title, body: "Seen on Front door", name: name, camera: "Front door",
+                                               date: Date(), picture: picture)
+                    for channel in AlertChannel.allCases {
+                        let on = [AlertChannel.ntfy: settings.ntfyEnabled, .telegram: settings.telegramEnabled, .webhook: settings.webhookEnabled][channel] ?? false
+                        guard on, AlertSender.isReady(channel, settings) else { continue }
+                        do {
+                            try await AlertSender.send(message, to: channel, settings: settings)
+                            print("alert-test: \(channel.rawValue) [\(title)]: sent")
+                        } catch {
+                            print("alert-test: \(channel.rawValue) [\(title)]: FAILED: \(error.localizedDescription)")
+                        }
+                    }
+                }
+                exit(0)
+            }
+            dispatchMain()
+        }
         // `FaceRec --stream-test rtsp://camera/stream` connects to a network camera without the window.
         if let flag = CommandLine.arguments.firstIndex(of: "--stream-test") {
             StreamTest.run(Array(CommandLine.arguments[(flag + 1)...]))

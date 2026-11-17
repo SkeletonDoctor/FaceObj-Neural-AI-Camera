@@ -74,11 +74,24 @@ RTSP is read over TCP only, so cameras that offer video only over UDP will not c
 Choose **Security** at the top of the window to use FaceRec as a camera monitor. This Mac's own camera is switched off (no camera permission is needed) and the network cameras get the Mac's full attention.
 
 - **History.** Everyone who appears on a network camera is logged in the History tab (`H`) with the time, the camera, a face picture and a snapshot of the scene. Click an entry to see the snapshot. The same person on the same camera is logged at most once every 2 minutes (unknown people: every 30 seconds).
-- **Alerts.** Settings › Security can send a macOS notification when an unknown person appears, and optionally for people you have named.
+- **Alerts.** Settings › Alerts can alert you when an unknown person appears, and optionally for people you have named: as a macOS notification, on your phone, or to your own automation (see below).
 - **Stay awake.** The Mac is kept from sleeping while network cameras are being watched (can be turned off).
 - **This Mac's camera too.** Settings › Security can add this Mac's own camera to the grid.
 
 Closing the window quits the app and stops watching. Check the rules on camera recording and face recognition where you live, and tell people they are on camera.
+
+## Alerts on your phone
+
+Settings › Alerts chooses when to alert and where to send it. Each outside service is off until you turn it on, and has a **Send Test** button.
+
+| Where | What you need | Notes |
+|---|---|---|
+| macOS notification | Nothing | Stays on this Mac |
+| **ntfy** (phone push) | The free ntfy app on iPhone or Android | Press **Suggest** for a topic name, scan the code shown in Settings with the phone, then Send Test. Works with ntfy.sh or your own ntfy server |
+| **Telegram** | A bot token from @BotFather and your chat ID | Send your bot a message first so it may write to you |
+| **Webhook** | An address that accepts a POST | JSON with `app`, `event`, `known`, `name`, `camera`, `time`, `title`, `message`, `test`, and `image_jpeg_base64` when a picture is included. For Home Assistant, n8n, Zapier, IFTTT and similar |
+
+Alerts sent through ntfy, Telegram or a webhook leave this Mac and go through that service, with a snapshot of the scene unless you turn pictures off. An ntfy topic works like a password: anyone who knows it can read the alerts. Tokens and addresses are kept in `alerts.json` in the app's data folder, readable only by your user account.
 
 ## Continuous learning
 
@@ -92,7 +105,7 @@ After a person is named once, the app keeps learning them:
 
 ## Privacy
 
-Video never leaves the Mac. Everything is stored only in `~/Library/Application Support/FaceRec/`: `faces.json` holds the face embeddings, `avatars/` one small picture per person, and `cameras.json` the network camera addresses (including any passwords in them; the file is readable only by your user account), and `events/` the face history with its pictures and, for unknown faces, the captured views. Delete that folder to erase everything the app has learned.
+Video never leaves the Mac. The one exception is opt-in: if you turn on ntfy, Telegram or a webhook in Settings › Alerts, each alert (and its snapshot, unless you turn pictures off) is sent through that service. Everything is stored only in `~/Library/Application Support/FaceRec/`: `faces.json` holds the face embeddings, `avatars/` one small picture per person, and `cameras.json` the network camera addresses (including any passwords in them; the file is readable only by your user account), and `events/` the face history with its pictures and, for unknown faces, the captured views. Delete that folder to erase everything the app has learned.
 
 ## How it works
 
@@ -162,6 +175,7 @@ The built binary is at `build/Build/Products/Release/FaceRec.app/Contents/MacOS/
 | `FaceRec --benchmark pairs.tsv` | Measures accuracy on labelled pairs, one per line: `imageA<TAB>imageB<TAB>1` (same person) or `0` |
 | `FaceRec --render <dir> photo.jpg` | Draws the interface over a photo into `video.png` and `people.png` |
 | `FaceRec --stream-test <address> [seconds]` | Connects to a network camera, then reports frames received, picture size and faces found |
+| `FaceRec --alert-test [picture.jpg]` | Sends a sample alert through every outside service switched on in Settings › Alerts and prints each result |
 | `FaceRec --update-test` | Runs one update check, download and install without the window. `FACEREC_UPDATE_FEED` can point it at a test release description; signatures are still checked |
 
 ## Licences
