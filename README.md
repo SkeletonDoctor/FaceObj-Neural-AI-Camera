@@ -86,9 +86,9 @@ On two live street cameras over 40 seconds, boxes that vanished and came back wi
 
 *One camera shown alone. Each box is a tracked object with its label and the detector's confidence.*
 
-![The object filter panel open over the video](docs/images/object-filter.jpg)
+![The Neural panel open over the camera grid](docs/images/neural-panel.jpg)
 
-*The object filter: turn detection on, set how sure it must be, and choose which kinds of object to show.*
+*The Neural panel: face recognition, learning and object detection in one place, with how sure the detector must be and which kinds of object to show.*
 
 ## Cameras
 
