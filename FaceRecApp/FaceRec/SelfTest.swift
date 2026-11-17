@@ -132,8 +132,9 @@ enum SelfTest {
         // drifts below the recognition threshold relative to the frontal sample.
         var view = front
         var tracker = FaceTracker()
+        var announced: [String] = []      // security sightings, in order
         for _ in 0..<6 {   // lock the track's identity on the frontal view
-            tracker.update([front], store: store)
+            announced += tracker.update([front], store: store).sightings.map { $0.name ?? "Unknown" }
         }
         var learned = 0
         for step in 1...6 {
@@ -157,11 +158,12 @@ enum SelfTest {
             var before = store.sampleCount("Person A")
             var name: String? = "Person A"
             for _ in 0..<8 {
-                tracker.update([stranger], store: store)
+                announced += tracker.update([stranger], store: store).sightings.map { $0.name ?? "Unknown" }
                 name = tracker.largestConfirmed()?.name
             }
             before = store.sampleCount("Person A") - before
             print("Store: stranger on Person A's track -> \(before) samples learned (expect 0), track name now \(name ?? "nil") (expect nil)")
+            print("Sightings reported: \(announced) (expect [\"Person A\", \"Unknown\"]: each once)")
         }
 
         // An unnamed face seen from several angles: naming it should enrol all of them.

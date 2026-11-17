@@ -3,13 +3,22 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showPeople = false
+    @State private var sideTab = SidePanel.Tab.people
     @FocusState private var videoFocused: Bool
 
     var body: some View {
         ZStack {
             Color.black
             if model.engine != nil {
-                if model.feeds.count > 1, model.gridMode {
+                if model.feeds.isEmpty {
+                    ContentUnavailableView {
+                        Label("No cameras", systemImage: "video.slash")
+                    } description: {
+                        Text("Security mode uses network cameras only. Add one to start watching.")
+                    } actions: {
+                        SettingsLink { Text("Add a Network Camera…") }
+                    }
+                } else if model.feeds.count > 1, model.gridMode {
                     CameraGrid()
                 } else if let feed = model.selectedFeed {
                     FeedView(feed: feed).id(feed.id)
@@ -42,7 +51,7 @@ struct ContentView: View {
                         .background(.regularMaterial, in: Capsule())
                         .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
                         .transition(.move(edge: .bottom).combined(with: .opacity))
-                } else if model.engine != nil {
+                } else if model.engine != nil, !(model.feeds.count > 1 && model.gridMode) {
                     NamingHint(model: model.status).transition(.opacity)
                 }
                 UpdateCapsule(updater: Updater.shared)
@@ -58,7 +67,8 @@ struct ContentView: View {
             case "a": model.beginLabel()
             case "o": model.toggleObjects()
             case "s": model.save()
-            case "l": togglePeople(!showPeople)
+            case "l": sideTab = .people; togglePeople(!(showPeople && sideTab == .people))
+            case "e": sideTab = .events; model.unseenEvents = 0; togglePeople(true)
             case "g": if model.feeds.count > 1 { model.gridMode.toggle() }
             default: return .ignored
             }
@@ -66,7 +76,7 @@ struct ContentView: View {
         }
         .toolbar { toolbar }
         .inspector(isPresented: $showPeople) {
-            PeoplePanel().inspectorColumnWidth(min: 260, ideal: 310, max: 420)
+            SidePanel(tab: $sideTab).inspectorColumnWidth(min: 260, ideal: 310, max: 420)
         }
         .sheet(item: $model.labelRequest) { LabelSheet(request: $0) }
         .sheet(isPresented: $model.showEnrol) { EnrolSheet() }
@@ -86,6 +96,7 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        if !model.securityMode {
         ToolbarItem(placement: .navigation) {
             Picker("Camera", selection: Binding(get: { model.cameraID }, set: { model.selectCamera($0) })) {
                 ForEach(model.cameras) { Text($0.name).tag(Optional($0.id)) }
@@ -111,12 +122,23 @@ struct ContentView: View {
             .disabled(model.resolutions.isEmpty)
             .help("Camera resolution and frame rate")
         }
+        } else {
+            ToolbarItem(placement: .navigation) {
+                Label("Security mode", systemImage: "shield.lefthalf.filled")
+                    .labelStyle(.titleAndIcon).foregroundStyle(.green)
+                    .help("Security mode: network cameras only. This Mac's camera is off.")
+            }
+        }
         ToolbarItem(placement: .primaryAction) {
             Button { model.beginLabel() } label: {
                 Label("Name Face", systemImage: "person.crop.circle.badge.plus").labelStyle(.titleAndIcon)
             }
             .buttonStyle(.borderedProminent)
             .help("Name the largest face in frame (A)")
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Toggle(isOn: $model.securityMode) { Label("Security Mode", systemImage: "shield.lefthalf.filled") }
+                .help("Security mode: watch network cameras only, with this Mac's camera off")
         }
         if model.feeds.count > 1 {
             ToolbarItem(placement: .primaryAction) {
@@ -148,9 +170,9 @@ struct ContentView: View {
         }
         ToolbarItem(placement: .primaryAction) {
             Toggle(isOn: Binding(get: { showPeople }, set: togglePeople)) {
-                Label("People", systemImage: "person.2")
+                Label("People and Events", systemImage: model.unseenEvents > 0 ? "person.2.badge.plus" : "person.2")
             }
-            .help("Known people (L)")
+            .help(model.unseenEvents > 0 ? "\(model.unseenEvents) new security event(s). People (L), Events (E)" : "People (L) and security events (E)")
         }
     }
 }
@@ -398,6 +420,104 @@ struct AngleGrid: View {
         }
         .help("Head angles learned: left, centre, right by up, level, down")
         .accessibilityLabel("\(coverage.filter { $0 > 0 }.count) of 9 head angles learned")
+    }
+}
+
+/// The side panel: known people, and the security log.
+struct SidePanel: View {
+    enum Tab { case people, events }
+    @Binding var tab: Tab
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("Show", selection: $tab) {
+                Text("People").tag(Tab.people)
+                Text(model.unseenEvents > 0 ? "Events (\(model.unseenEvents))" : "Events").tag(Tab.events)
+            }
+            .pickerStyle(.segmented).labelsHidden()
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            Divider()
+            switch tab {
+            case .people: PeoplePanel()
+            case .events: EventsPanel(log: model.eventLog)
+            }
+        }
+        .onChange(of: tab) { _, new in if new == .events { model.unseenEvents = 0 } }
+    }
+}
+
+/// The security log: who appeared on which network camera, newest first.
+private struct EventsPanel: View {
+    @ObservedObject var log: EventLog
+    @EnvironmentObject private var model: AppModel
+    @State private var showing: SecurityEvent?
+    @State private var confirmClear = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if log.events.isEmpty {
+                ContentUnavailableView {
+                    Label("No events yet", systemImage: "shield")
+                } description: {
+                    Text("When someone appears on a network camera, it is logged here with a picture.")
+                }
+            } else {
+                List(log.events) { event in
+                    Button { showing = event } label: {
+                        HStack(spacing: 12) {
+                            Avatar(name: event.name ?? "?", image: log.image(event.face))
+                                .overlay(Circle().strokeBorder(event.name == nil ? Color.orange : .clear, lineWidth: 2))
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(event.name ?? "Unknown person").font(.body.weight(.semibold))
+                                    .foregroundStyle(event.name == nil ? Color.orange : .primary).lineLimit(1)
+                                Text("\(event.camera) · \(event.date.formatted(date: .abbreviated, time: .standard))")
+                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
+            }
+            Divider()
+            HStack {
+                Label("Network cameras only", systemImage: "shield.lefthalf.filled").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Clear…") { confirmClear = true }.controlSize(.small).disabled(log.events.isEmpty)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+        }
+        .onAppear { model.unseenEvents = 0 }
+        .onChange(of: log.events.count) { _, _ in model.unseenEvents = 0 }
+        .sheet(item: $showing) { event in
+            VStack(alignment: .leading, spacing: 12) {
+                if let scene = log.image(event.scene) {
+                    Image(nsImage: scene).resizable().scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(event.name ?? "Unknown person").font(.title3.weight(.semibold))
+                        Text("\(event.camera) · \(event.date.formatted(date: .complete, time: .standard))")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Done") { showing = nil }.keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(20)
+            .frame(width: 640)
+        }
+        .confirmationDialog("Clear the security log?", isPresented: $confirmClear) {
+            Button("Clear \(log.events.count) Events", role: .destructive) { log.clear() }
+        } message: {
+            Text("The events and their pictures will be deleted. This cannot be undone.")
+        }
     }
 }
 

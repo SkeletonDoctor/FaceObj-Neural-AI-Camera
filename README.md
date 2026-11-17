@@ -26,6 +26,8 @@ Because the app is not notarised, macOS asks for camera access again after each 
 |---|---|---|
 | `A` | Name Face | Name the largest face in frame (shows its picture; pick an existing person to add to them) |
 | | Camera and quality menus | Choose the camera, its resolution and its frame rate (remembered per camera) |
+| `E` | People and Events | Show the security log |
+| | Security Mode | Network cameras only, with this Mac's camera off |
 | `G` | Grid | With network cameras added: show every camera, or only the selected one |
 | `O` | Objects | Toggle object detection (80 everyday object classes) |
 | `L` | People | Show known people with their picture and learned angles; hover a row for rename and delete |
@@ -52,6 +54,16 @@ Network cameras do not have to be analysed fully live. This Mac's camera always 
 
 RTSP is read over TCP only, so cameras that offer video only over UDP will not connect. Using a camera's lower-resolution stream keeps decoding cheap.
 
+## Security mode
+
+Turn on **Security Mode** (the shield in the toolbar, or Settings › Security) to use FaceRec as a camera monitor. This Mac's own camera is switched off, no camera permission is needed, and the network cameras get the Mac's full attention.
+
+- **Events.** Everyone who appears on a network camera is logged in the side panel's Events tab (`E`) with the time, the camera, a face picture and a snapshot of the scene. Click an event to see the snapshot. The same person on the same camera is logged at most once every 2 minutes (unknown people: every 30 seconds), and the log keeps the most recent 300 events.
+- **Alerts.** Settings › Security can send a macOS notification when an unknown person appears, and optionally for people you have named.
+- **Stay awake.** The Mac is kept from sleeping while network cameras are being watched (can be turned off).
+
+Events are logged for network cameras in normal mode too. Closing the window quits the app and stops watching. Check the rules on camera recording and face recognition where you live, and tell people they are on camera.
+
 ## Continuous learning
 
 After a person is named once, the app keeps learning them:
@@ -64,7 +76,7 @@ After a person is named once, the app keeps learning them:
 
 ## Privacy
 
-Video never leaves the Mac. Everything is stored only in `~/Library/Application Support/FaceRec/`: `faces.json` holds the face embeddings, `avatars/` one small picture per person, and `cameras.json` the network camera addresses (including any passwords in them; the file is readable only by your user account). Delete that folder to erase everything the app has learned.
+Video never leaves the Mac. Everything is stored only in `~/Library/Application Support/FaceRec/`: `faces.json` holds the face embeddings, `avatars/` one small picture per person, and `cameras.json` the network camera addresses (including any passwords in them; the file is readable only by your user account), and `events/` the security log with its pictures. Delete that folder to erase everything the app has learned.
 
 ## How it works
 

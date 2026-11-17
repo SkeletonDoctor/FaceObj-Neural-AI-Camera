@@ -4,9 +4,10 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             CameraSettings().tabItem { Label("Network Cameras", systemImage: "video") }
+            SecuritySettings().tabItem { Label("Security", systemImage: "shield.lefthalf.filled") }
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
         }
-        .frame(width: 600, height: 420)
+        .frame(width: 600, height: 460)
     }
 }
 
@@ -174,6 +175,32 @@ private struct CameraEditor: View {
     }
 
     private var address: String { camera.address.trimmingCharacters(in: .whitespacesAndNewlines) }
+}
+
+private struct SecuritySettings: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Security mode", isOn: $model.securityMode)
+                Text("Watches network cameras only. This Mac's own camera is switched off and no camera permission is needed.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Alerts") {
+                Toggle("Notify me when an unknown person appears", isOn: $model.notifyUnknown)
+                Toggle("Notify me when someone I have named appears", isOn: $model.notifyKnown)
+                Text("Everyone who appears on a network camera is added to the Events list with a picture, whether or not alerts are on. The same person on the same camera is logged at most once every 2 minutes (unknown people: every 30 seconds).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle("Keep this Mac awake while watching network cameras", isOn: $model.keepAwake)
+                Text("Closing the FaceRec window quits the app and stops watching. Check the rules on camera recording and face recognition where you live, and tell people they are on camera.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
 }
 
 private struct GeneralSettings: View {

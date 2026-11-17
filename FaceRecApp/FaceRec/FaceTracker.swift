@@ -75,6 +75,10 @@ final class FaceTrack {
     private var galleryStrangers = 0
     static let galleryLimit = 12
 
+    /// What this track has already been reported as (see `newSighting`).
+    private var announcedName: String?
+    private var announcedUnknown = false
+
     /// Recent embeddings blended together. Identity is decided on this, so one
     /// blurred or half-hidden frame cannot flip the name.
     private var fused: [Float]
@@ -159,7 +163,25 @@ final class FaceTrack {
         return fused
     }
 
+    /// Reports this face once it is settled: as a named person after three
+    /// agreeing recognitions, or as unknown after eight detections without a
+    /// name. A face first reported as unknown is reported again if it is then recognised.
+    fileprivate func newSighting() -> Sighting? {
+        if let name, nameHits >= 3 {
+            guard announcedName != name else { return nil }
+            announcedName = name
+            return Sighting(name: name, confidence: confidence, crop: bestCrop?.crop)
+        }
+        if name == nil, hits >= 8, !announcedUnknown {
+            announcedUnknown = true
+            return Sighting(name: nil, confidence: 0, crop: bestCrop?.crop)
+        }
+        return nil
+    }
+
     fileprivate func forgetIdentity() {
+        announcedName = nil
+        announcedUnknown = false
         name = nil
         confidence = 0
         sampleCount = 0
@@ -219,14 +241,16 @@ final class FaceTracker {
 
     /// Matches new detections to tracks, then recognises each face using its
     /// track's blended embedding. Call whenever the detector finishes a frame.
-    /// Returns how many samples were learned and who each face was recognised as.
+    /// Returns how many samples were learned, who each face was recognised as,
+    /// and anyone who has newly appeared.
     @discardableResult
-    func update(_ faces: [DetectedFace], store: FaceStore?) -> (learned: Int, names: [String?]) {
+    func update(_ faces: [DetectedFace], store: FaceStore?) -> (learned: Int, names: [String?], sightings: [Sighting]) {
         var names = [String?](repeating: nil, count: faces.count)
+        var sightings: [Sighting] = []
         if faces.isEmpty {
             for t in tracks { t.misses += 1 }
             prune()
-            return (0, names)
+            return (0, names, [])
         }
         var learnedCount = 0
         var matchedTracks = Set<Int>()
@@ -260,6 +284,7 @@ final class FaceTracker {
                 }
             }
             track.update(FaceResult(face: face, recognition: recognition), learnedFromTrack: learned, sampleCount: tracked)
+            if let sighting = track.newSighting() { sightings.append(sighting) }
             matchedTracks.insert(r)
             matchedFaces.insert(c)
         }
@@ -272,7 +297,7 @@ final class FaceTracker {
             tracks.append(FaceTrack(FaceResult(face: face, recognition: recognition)))
         }
         prune()
-        return (learnedCount, names)
+        return (learnedCount, names, sightings)
     }
 
     func largestConfirmed() -> FaceTrack? {
