@@ -269,7 +269,7 @@ final class RTSPSource: StreamSource, @unchecked Sendable {
                       then: @escaping (Response) -> Void) {
         guard let connection else { return }
         cseq += 1
-        var text = "\(method) \(uri) RTSP/1.0\r\nCSeq: \(cseq)\r\nUser-Agent: FaceRec\r\n"
+        var text = "\(method) \(uri) RTSP/1.0\r\nCSeq: \(cseq)\r\nUser-Agent: NeuralSentry\r\n"
         if let sessionID { text += "Session: \(sessionID)\r\n" }
         if let authorization = authorization(method: method, uri: uri) { text += "Authorization: \(authorization)\r\n" }
         for (name, value) in headers { text += "\(name): \(value)\r\n" }

@@ -153,7 +153,7 @@ enum AlertSender {
         if let picture = m.picture {
             guard let url = URL(string: "\(base)/bot\(token)/sendPhoto") else { throw AlertError("The Telegram bot token is not valid.") }
             request = URLRequest(url: url)
-            let boundary = "FaceRec-" + UUID().uuidString
+            let boundary = "NeuralSentry-" + UUID().uuidString
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
             var body = Data()
             func field(_ name: String, _ value: String) {
@@ -188,7 +188,7 @@ enum AlertSender {
     private static func webhook(_ m: AlertMessage, _ s: AlertSettings) async throws {
         guard let url = URL(string: s.webhookURL.trimmed), url.host != nil else { throw AlertError("The webhook address is not valid.") }
         var payload: [String: Any] = [
-            "app": "FaceRec", "event": "sighting", "known": m.name != nil, "camera": m.camera,
+            "app": "Neural Sentry", "event": "sighting", "known": m.name != nil, "camera": m.camera,
             "time": ISO8601DateFormatter().string(from: m.date), "title": m.title, "message": m.body, "test": m.isTest,
         ]
         payload["name"] = m.name ?? NSNull()

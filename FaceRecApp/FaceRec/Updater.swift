@@ -43,10 +43,10 @@ final class Updater: ObservableObject {
             return "This is a development build, so it does not update itself."
         }
         if bundle.path.contains("/AppTranslocation/") {
-            return "Move FaceRec to the Applications folder and reopen it to enable automatic updates."
+            return "Move Neural Sentry to the Applications folder and reopen it to enable automatic updates."
         }
         if !FileManager.default.isWritableFile(atPath: bundle.deletingLastPathComponent().path) {
-            return "FaceRec can't write to \(bundle.deletingLastPathComponent().path)."
+            return "Neural Sentry can't write to \(bundle.deletingLastPathComponent().path)."
         }
         return nil
     }
@@ -126,7 +126,7 @@ final class Updater: ObservableObject {
                   staged.bundleIdentifier == Bundle.main.bundleIdentifier,
                   let stagedVersion = staged.infoDictionary?["CFBundleShortVersionString"] as? String,
                   ReleaseFeed.isVersion(stagedVersion, newerThan: Self.currentVersion)
-            else { throw UpdateError("The downloaded update isn't a newer copy of FaceRec.") }
+            else { throw UpdateError("The downloaded update isn't a newer copy of Neural Sentry.") }
             try? ReleaseFeed.run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", app.path])
 
             stagedApp = app
@@ -162,7 +162,7 @@ final class Updater: ObservableObject {
                 throw error
             }
         } catch {
-            NSLog("FaceRec: update install failed: \(error)")
+            NSLog("Neural Sentry: update install failed: \(error)")
             return
         }
         stagedApp = nil
@@ -176,5 +176,40 @@ final class Updater: ObservableObject {
         waiter.arguments = ["-c", "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.2; done; open \"$0\"",
                             app.path]
         try? waiter.run()
+    }
+}
+
+/// The app was called FaceRec until 1.9. A copy that updated itself is still
+/// sitting in a bundle named FaceRec.app; this gives it the new name.
+enum BundleRename {
+    static let oldName = "FaceRec.app"
+    static let newName = "Neural Sentry.app"
+
+    /// Renames this copy's bundle and reopens it under the new name. Returns
+    /// true when that is under way and this process should exit.
+    static func adoptNewName() -> Bool {
+        let bundle = Bundle.main.bundleURL
+        let folder = bundle.deletingLastPathComponent()
+        let renamed = folder.appendingPathComponent(newName)
+        let fm = FileManager.default
+        guard bundle.lastPathComponent == oldName,
+              !bundle.path.contains("/Build/Products/"), !bundle.path.contains("/AppTranslocation/"),
+              fm.isWritableFile(atPath: folder.path), !fm.fileExists(atPath: renamed.path) else { return false }
+        do {
+            try fm.moveItem(at: bundle, to: renamed)
+        } catch {
+            NSLog("Neural Sentry: could not rename \(bundle.path): \(error)")
+            return false
+        }
+        // Open the renamed copy once this process has gone.
+        let waiter = Process()
+        waiter.executableURL = URL(fileURLWithPath: "/bin/sh")
+        waiter.arguments = ["-c", "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.2; done; open \"$0\"",
+                            renamed.path]
+        do { try waiter.run() } catch {
+            try? fm.moveItem(at: renamed, to: bundle)   // could not reopen: stay as we were
+            return false
+        }
+        return true
     }
 }

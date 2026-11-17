@@ -3,7 +3,7 @@ import CoreML
 import Foundation
 
 /// Headless check of the models and the still-image pipeline.
-///   FaceRec --selftest [--crops <dir>] photo1.jpg photo2.jpg ...
+///   "Neural Sentry" --selftest [--crops <dir>] photo1.jpg photo2.jpg ...
 enum SelfTest {
     static func run(_ arguments: [String]) async {
         var photos: [String] = []

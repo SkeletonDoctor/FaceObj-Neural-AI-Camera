@@ -22,7 +22,7 @@ private struct CameraSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("The cameras FaceRec watches: network cameras, and cameras on this Mac.")
+            Text("The cameras Neural Sentry watches: network cameras, and cameras on this Mac.")
                 .font(.callout).foregroundStyle(.secondary)
 
             List(selection: $selection) {
@@ -125,7 +125,7 @@ private struct SecuritySettings: View {
             }
             Section {
                 Toggle("Keep this Mac awake while watching cameras", isOn: $model.keepAwake)
-                Text("Closing the FaceRec window quits the app and stops watching. Check the rules on camera recording and face recognition where you live, and tell people they are on camera.")
+                Text("Closing the Neural Sentry window quits the app and stops watching. Check the rules on camera recording and face recognition where you live, and tell people they are on camera.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -192,8 +192,8 @@ private struct RecordingSettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
-                Toggle("Start recording when FaceRec opens", isOn: $model.recordingSettings.startOnLaunch)
-                Text("Closing the FaceRec window quits the app and stops recording. Check the rules on recording where you live.")
+                Toggle("Start recording when Neural Sentry opens", isOn: $model.recordingSettings.startOnLaunch)
+                Text("Closing the Neural Sentry window quits the app and stops recording. Check the rules on recording where you live.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -318,7 +318,7 @@ private struct AlertSettingsView: View {
                     LabeledContent("Address") {
                         TextField("Address", text: $model.alerts.webhookURL, prompt: Text("https://example.com/hook")).labelsHidden().inputField(symbol: "link").frame(maxWidth: 340)
                     }
-                    Text("FaceRec sends a POST with JSON: app, event, known, name, camera, time, title, message, test, and image_jpeg_base64 when a picture is included. Works with Home Assistant, n8n, Zapier, IFTTT and similar.")
+                    Text("Neural Sentry sends a POST with JSON: app, event, known, name, camera, time, title, message, test, and image_jpeg_base64 when a picture is included. Works with Home Assistant, n8n, Zapier, IFTTT and similar.")
                         .font(.caption).foregroundStyle(.secondary)
                     TestRow(channel: .webhook)
                 }
@@ -436,7 +436,7 @@ private struct GeneralSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Updates") {
-                Toggle("Update FaceRec and its neural networks automatically", isOn: $updater.automatic)
+                Toggle("Update Neural Sentry and its neural networks automatically", isOn: $updater.automatic)
                 LabeledContent("Version", value: Updater.currentVersion)
             }
         }

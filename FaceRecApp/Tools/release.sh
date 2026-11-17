@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Publishes the version in the Xcode project (MARKETING_VERSION) as a GitHub release.
-# Installed copies of FaceRec pick it up automatically (see FaceRec/Updater.swift).
+# Installed copies pick it up automatically (see FaceRec/Updater.swift). The update
+# archive is still called FaceRec.zip, the app's name until 1.9, so that copies
+# installed before the rename find it.
 #
 #   1. Raise MARKETING_VERSION in FaceRec.xcodeproj, commit and push.
 #      If the models changed, also raise ModelStore.bundledVersion.
@@ -24,17 +26,17 @@ if [ "${1:-}" != "--package-only" ] && [ "$(gh release view "$TAG" --json isDraf
 fi
 
 Tools/make_dmg.sh
-APP="build/release/Build/Products/Release/FaceRec.app"
+APP="build/release/Build/Products/Release/Neural Sentry.app"
 
 echo "Packaging..."
-ASSETS=("build/FaceRec-$VERSION.dmg" build/FaceRec.zip build/FaceRec.zip.sig "build/Models-$MODELS.zip" "build/Models-$MODELS.zip.sig")
+ASSETS=("build/Neural-Sentry-$VERSION.dmg" build/FaceRec.zip build/FaceRec.zip.sig "build/Models-$MODELS.zip" "build/Models-$MODELS.zip.sig")
 rm -f build/FaceRec.zip build/FaceRec.zip.sig build/Models-*.zip build/Models-*.zip.sig
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 # Package from a copy without extended attributes (see make_dmg.sh).
-ditto --noextattr --norsrc "$APP" "$STAGE/app/FaceRec.app"
-codesign --verify --deep --strict "$STAGE/app/FaceRec.app"
-ditto -c -k --keepParent "$STAGE/app/FaceRec.app" build/FaceRec.zip
+ditto --noextattr --norsrc "$APP" "$STAGE/app/Neural Sentry.app"
+codesign --verify --deep --strict "$STAGE/app/Neural Sentry.app"
+ditto -c -k --keepParent "$STAGE/app/Neural Sentry.app" build/FaceRec.zip
 swift Tools/sign_update.swift sign build/FaceRec.zip > build/FaceRec.zip.sig
 # The compiled models on their own, for copies built without them and for model-only updates.
 mkdir "$STAGE/models"
@@ -62,9 +64,9 @@ retry() {
 retry git push origin HEAD
 if ! gh release view "$TAG" >/dev/null 2>&1; then
     if [ $# -gt 0 ]; then
-        retry gh release create "$TAG" --draft --title "FaceRec $VERSION" --notes "$1"
+        retry gh release create "$TAG" --draft --title "Neural Sentry $VERSION" --notes "$1"
     else
-        retry gh release create "$TAG" --draft --title "FaceRec $VERSION" --generate-notes
+        retry gh release create "$TAG" --draft --title "Neural Sentry $VERSION" --generate-notes
     fi
 fi
 upload() {

@@ -44,7 +44,7 @@ struct LabelRequest: Identifiable {
     /// Set when naming a face from the history rather than from live video.
     var event: SecurityEvent?
     var picture: NSImage?
-    /// Set when correcting a match: the name FaceRec gave, which was wrong.
+    /// Set when correcting a match: the name Neural Sentry gave, which was wrong.
     var rejectedName: String?
 }
 
@@ -315,7 +315,7 @@ final class AppModel: ObservableObject {
         guard turnedOn, alerts.mac else { return }
         Task {
             if !(await Notifier.shared.requestPermission()) {
-                notice = Notice(title: "Notifications are off", message: "To get alerts, allow notifications for FaceRec in System Settings › Notifications.")
+                notice = Notice(title: "Notifications are off", message: "To get alerts, allow notifications for Neural Sentry in System Settings › Notifications.")
             }
         }
     }
@@ -388,7 +388,7 @@ final class AppModel: ObservableObject {
 
     /// The Send Test button: sends a harmless message through one service and reports the result.
     func sendTestAlert(_ channel: AlertChannel) async -> (ok: Bool, message: String) {
-        let message = AlertMessage(title: "FaceRec test alert", body: "Alerts from FaceRec will arrive here.",
+        let message = AlertMessage(title: "Neural Sentry test alert", body: "Alerts from Neural Sentry will arrive here.",
                                    name: nil, camera: "Test", date: Date(), picture: nil, isTest: true)
         do {
             try await AlertSender.send(message, to: channel, settings: alerts)
@@ -432,7 +432,7 @@ final class AppModel: ObservableObject {
                 model.source = source
                 source.start()
             } else {
-                model.connection = .failed("This address is not one FaceRec can play.")
+                model.connection = .failed("This address is not one Neural Sentry can play.")
             }
             feeds.append(model)
         }
@@ -480,7 +480,7 @@ final class AppModel: ObservableObject {
     /// Tries an address for a few seconds and says what happened.
     func testCamera(_ address: String) async -> CameraTest {
         guard let source = StreamSources.make(address) else {
-            return CameraTest(ok: false, message: "This is not a camera FaceRec can play. Network addresses start with rtsp://, rtsps://, http:// or https://.")
+            return CameraTest(ok: false, message: "This is not a camera Neural Sentry can play. Network addresses start with rtsp://, rtsps://, http:// or https://.")
         }
         final class Outcome: @unchecked Sendable {
             let lock = NSLock()
@@ -533,7 +533,7 @@ final class AppModel: ObservableObject {
     func commitLabel(_ request: LabelRequest, name: String) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, let engine else { return }
-        // Correcting a match: first forget what made FaceRec think it was the other person.
+        // Correcting a match: first forget what made Neural Sentry think it was the other person.
         if let wrong = request.rejectedName, wrong != name {
             engine.store.unlearn(name: wrong, samples: request.candidate.samples)
         }
@@ -638,7 +638,7 @@ final class AppModel: ObservableObject {
             guard FileManager.default.isWritableFile(atPath: folder.path) else { throw CocoaError(.fileWriteNoPermission) }
             return true
         } catch {
-            notice = Notice(title: "Cannot record", message: "FaceRec cannot write to \(folder.path). Choose another folder in Settings › Recording.")
+            notice = Notice(title: "Cannot record", message: "Neural Sentry cannot write to \(folder.path). Choose another folder in Settings › Recording.")
             return false
         }
     }
@@ -745,7 +745,7 @@ final class AppModel: ObservableObject {
             await updater.check(userInitiated: true)
             switch updater.phase {
             case .upToDate:
-                notice = Notice(title: "FaceRec is up to date", message: updater.modelsPending
+                notice = Notice(title: "Neural Sentry is up to date", message: updater.modelsPending
                     ? "Version \(Updater.currentVersion) is the newest. Improved neural networks were installed and will be used after a restart."
                     : "Version \(Updater.currentVersion) is the newest.")
             case .failed(let message):

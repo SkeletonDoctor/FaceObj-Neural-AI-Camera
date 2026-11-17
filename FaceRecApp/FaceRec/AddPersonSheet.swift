@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Teaches FaceRec a face with a camera on this Mac. The person looks at the
+/// Teaches Neural Sentry a face with a camera on this Mac. The person looks at the
 /// camera and turns their head; views are captured automatically across
 /// angles, so every security camera can recognise them afterwards.
 struct AddPersonSheet: View {

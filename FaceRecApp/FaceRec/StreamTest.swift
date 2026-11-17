@@ -1,12 +1,12 @@
 import CoreVideo
 import Foundation
 
-/// `FaceRec --stream-test <address> [seconds]` connects to a network camera
+/// `"Neural Sentry" --stream-test <address> [seconds]` connects to a network camera
 /// without the window and reports what arrives.
 enum StreamTest {
     static func run(_ arguments: [String]) {
         guard let address = arguments.first, let source = StreamSources.make(address) else {
-            print("stream-test: not an address FaceRec can play. Examples: \(StreamSources.help)")
+            print("stream-test: not an address Neural Sentry can play. Examples: \(StreamSources.help)")
             exit(1)
         }
         let seconds = arguments.count > 1 ? Double(arguments[1]) ?? 8 : 8

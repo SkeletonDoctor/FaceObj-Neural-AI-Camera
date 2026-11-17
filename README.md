@@ -1,26 +1,28 @@
-<img src="FaceRecApp/FaceRec/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png" width="128" alt="FaceRec icon">
+<img src="FaceRecApp/FaceRec/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png" width="128" alt="Neural Sentry icon">
 
-# FaceRec
+# Neural Sentry
 
-A neural security system for the cameras you already have, on Apple Silicon Macs. FaceRec watches network cameras and cameras on your Mac side by side, recognises the people you have taught it, logs and records what happens, and alerts you about everyone else. Everything runs on-device: video is drawn with Metal and both neural networks run on the Apple Neural Engine through Core ML.
+*Neural AI camera security for the Mac. Called FaceRec until version 1.9.*
 
-![FaceRec watching three public street cameras, with tracked objects](docs/images/camera-grid.jpg)
+A neural security system for the cameras you already have, on Apple Silicon Macs. Neural Sentry watches network cameras and cameras on your Mac side by side, recognises the people you have taught it, logs and records what happens, and alerts you about everyone else. Everything runs on-device: video is drawn with Metal and both neural networks run on the Apple Neural Engine through Core ML.
+
+![Neural Sentry watching three public street cameras, with tracked objects](docs/images/camera-grid.jpg)
 
 *Three public street cameras at once (Nashville, Akron and Lake Tahoe), with object tracking on.*
 
 ## Download
 
-**[Download FaceRec for Mac (.dmg)](https://github.com/SkeletonDoctor/FaceObj-Neural-AI-Camera/releases/latest)**
+**[Download Neural Sentry for Mac (.dmg)](https://github.com/SkeletonDoctor/Neural-Sentry-AI-Camera-Security/releases/latest)**
 
 Requires macOS 15 or later on Apple Silicon.
 
-1. Open the `.dmg` and drag FaceRec to Applications.
-2. The app is not notarised by Apple, so the first launch is blocked. Open **System Settings › Privacy & Security**, scroll to the message about FaceRec and click **Open Anyway**.
+1. Open the `.dmg` and drag Neural Sentry to Applications.
+2. The app is not notarised by Apple, so the first launch is blocked. Open **System Settings › Privacy & Security**, scroll to the message about Neural Sentry and click **Open Anyway**.
 3. Allow camera access when asked.
 
 ### Updates
 
-FaceRec updates itself. It checks this repository's releases shortly after launch and once a day, downloads a newer version in the background, and installs it when you quit (or straight away with **Restart to Update**). Improved neural networks are delivered the same way. Every download is checked against a signature before it is installed. **More › Check for Updates…** checks on demand, and **More › Update Automatically** turns the background checks off.
+Neural Sentry updates itself. It checks this repository's releases shortly after launch and once a day, downloads a newer version in the background, and installs it when you quit (or straight away with **Restart to Update**). Improved neural networks are delivered the same way. Every download is checked against a signature before it is installed. **More › Check for Updates…** checks on demand, and **More › Update Automatically** turns the background checks off. A copy installed as FaceRec updates to Neural Sentry the same way and renames itself in the Applications folder the next time it opens.
 
 Because the app is not notarised, macOS asks for camera access again after each update.
 
@@ -28,7 +30,7 @@ Because the app is not notarised, macOS asks for camera access again after each 
 
 Two things get you started, and the app offers both the first time it opens:
 
-1. **Add Person** teaches FaceRec a face. Sit in front of a camera on this Mac and slowly turn your head; views are captured automatically across angles. Every camera can then recognise that person.
+1. **Add Person** teaches Neural Sentry a face. Sit in front of a camera on this Mac and slowly turn your head; views are captured automatically across angles. Every camera can then recognise that person.
 2. **Add Camera** adds a camera to watch: a network camera by its address, or a camera built into or plugged into this Mac.
 
 The toolbar has five controls, styled in Liquid Glass on macOS 26 and later. The same commands are in the File, Neural and View menus.
@@ -36,7 +38,7 @@ The toolbar has five controls, styled in Liquid Glass on macOS 26 and later. The
 | Toolbar | Item | Key | Action |
 |---|---|---|---|
 | **Add** | Add Camera… | `⌘N` | Add a network camera or a camera on this Mac |
-| | Add Person… | `P` or `⇧⌘N` | Teach FaceRec a face using a camera on this Mac |
+| | Add Person… | `P` or `⇧⌘N` | Teach Neural Sentry a face using a camera on this Mac |
 | | Name Face in View | `A` | Name the largest face a camera can see right now (shows its picture; pick an existing person to add to them) |
 | | Enrol from Photos… | | Add a person from image files |
 | **Record** | | `R` | Record every camera to video with the overlays, or stop |
@@ -65,7 +67,7 @@ On the video, a white bracket is an unknown face and a green one a recognised fa
 Every camera logs everyone who appears, known or not, in the History tab with a picture, the camera and the time. The Add Person camera is not logged, and the latest 300 entries are kept.
 
 - **Unknown faces** can be added to People after the fact: click **Add…**, type a name, and the person is enrolled from the views that were captured. Other history entries of the same person are named too.
-- **Recognised faces** wait under **To Confirm** with how sure the match was. Press ✓ if the match is right and FaceRec learns the views from that sighting, so the person is recognised better from that camera and angle next time. Press ✗ if it is wrong: name the right person (they learn the views instead) or choose **Nobody I Know** (the entry goes back to unknown). Either way, the person who was wrongly matched forgets the views that caused the mistake.
+- **Recognised faces** wait under **To Confirm** with how sure the match was. Press ✓ if the match is right and Neural Sentry learns the views from that sighting, so the person is recognised better from that camera and angle next time. Press ✗ if it is wrong: name the right person (they learn the views instead) or choose **Nobody I Know** (the entry goes back to unknown). Either way, the person who was wrongly matched forgets the views that caused the mistake.
 
 ### Object filter
 
@@ -94,9 +96,9 @@ On two live street cameras over 40 seconds, boxes that vanished and came back wi
 
 Add cameras with **Add Camera** (in the toolbar, or the dashed tile in the grid).
 
-**A camera on this Mac.** Choose "A camera on this Mac", pick the built-in, USB or Continuity camera, and optionally its resolution and frame rate. It joins the grid like any other camera. (To teach FaceRec a face, use Add Person instead.)
+**A camera on this Mac.** Choose "A camera on this Mac", pick the built-in, USB or Continuity camera, and optionally its resolution and frame rate. It joins the grid like any other camera. (To teach Neural Sentry a face, use Add Person instead.)
 
-**A network camera.** Pick the camera's make, type its address, user name and password, and FaceRec builds the stream address for Hikvision, Dahua, Amcrest, Reolink, TP-Link Tapo, Axis and Foscam cameras; or paste a full address. **Test Connection** shows the camera's picture before you add it. Cameras appear in a grid: click a tile to select it, double-click to show it alone, and hover for edit, switch-off and remove. Faces seen on any camera are recognised and learned the same way.
+**A network camera.** Pick the camera's make, type its address, user name and password, and Neural Sentry builds the stream address for Hikvision, Dahua, Amcrest, Reolink, TP-Link Tapo, Axis and Foscam cameras; or paste a full address. **Test Connection** shows the camera's picture before you add it. Cameras appear in a grid: click a tile to select it, double-click to show it alone, and hover for edit, switch-off and remove. Faces seen on any camera are recognised and learned the same way.
 
 | Address | What it is |
 |---|---|
@@ -138,7 +140,7 @@ Closing the window quits the app and stops watching. Check the rules on camera r
 **Record** in the toolbar (or `R`) saves every camera to video like a DVR; a tile's record button does one camera. Recorded cameras show a red REC badge.
 
 - **Overlays in the picture.** The face brackets and names, the object boxes, and the camera name, date and time are drawn into the video, so a recording shows what the app saw. Both can be turned off.
-- **Files.** One folder per camera and day, one file per 10 minutes, in `~/Movies/FaceRec` unless you choose another folder. HEVC video up to 1080p, written so that a crash or power cut loses only the last few seconds.
+- **Files.** One folder per camera and day, one file per 10 minutes, in `~/Movies/Neural Sentry` unless you choose another folder (`~/Movies/FaceRec` if that folder already exists from an earlier version). HEVC video up to 1080p, written so that a crash or power cut loses only the last few seconds.
 - **Storage.** About 1.4 GB per camera per hour at the standard quality and 15 frames per second. When the limit you set is reached (20 GB by default), the oldest recordings are deleted.
 - **Only when something happens.** Settings › Recording can record only while a person or object is in view, or only while things you choose are in view: particular kinds of object (a car, a dog, a person), any face, unknown faces only, or people you have named. Recording carries on for a few seconds afterwards (5 by default).
 - **Playback.** The side panel's Recordings tab lists the files; double-click plays one.
@@ -170,7 +172,7 @@ After a person is named once, the app keeps learning them:
 
 ## Privacy
 
-Video never leaves the Mac. The one exception is opt-in: if you turn on ntfy, Telegram or a webhook in Settings › Alerts, each alert (and its snapshot, unless you turn pictures off) is sent through that service. Everything is stored only in `~/Library/Application Support/FaceRec/`: `faces.json` holds the face embeddings, `avatars/` one small picture per person, and `cameras.json` the network camera addresses (including any passwords in them; the file is readable only by your user account), and `events/` the face history with its pictures and the captured views of faces that have not been named or confirmed yet. Recordings, if you make any, go to `~/Movies/FaceRec` or the folder you choose. Delete that folder to erase everything the app has learned.
+Video never leaves the Mac. The one exception is opt-in: if you turn on ntfy, Telegram or a webhook in Settings › Alerts, each alert (and its snapshot, unless you turn pictures off) is sent through that service. Everything is stored only in `~/Library/Application Support/FaceRec/` (the folder keeps the app's earlier name, so an update never loses your data): `faces.json` holds the face embeddings, `avatars/` one small picture per person, and `cameras.json` the network camera addresses (including any passwords in them; the file is readable only by your user account), and `events/` the face history with its pictures and the captured views of faces that have not been named or confirmed yet. Recordings, if you make any, go to `~/Movies/FaceRec` or the folder you choose. Delete that folder to erase everything the app has learned.
 
 ## How it works
 
@@ -188,7 +190,7 @@ Core ML decides where each layer runs. On an M5, the self-test reports 99% of Fa
 
 ## Accuracy and speed
 
-Measured with `FaceRec --benchmark` on the LFW face-pairs benchmark, through the app's own detector, alignment and embedding (M5):
+Measured with `"Neural Sentry" --benchmark` on the LFW face-pairs benchmark, through the app's own detector, alignment and embedding (M5):
 
 | | Held-out test pairs (1000) |
 |---|---|
@@ -212,7 +214,7 @@ Tools/build.sh
 ```
 
 ```bash
-open build/Build/Products/Release/FaceRec.app
+open "build/Build/Products/Release/Neural Sentry.app"
 ```
 
 `Tools/build.sh` signs with an Apple Development certificate if the keychain has one, so macOS remembers the camera permission between builds. You can also open `FaceRecApp/FaceRec.xcodeproj` in Xcode and press Run.
@@ -228,22 +230,22 @@ The neural networks are not in the repository. A build without them downloads th
 | `Tools/sign_update.swift` | Creates the update signing key and signs files. The private key stays in `~/.config/facerec/`, outside the repository |
 | `Tools/make_icon.swift` | Draws the app icon |
 
-To publish a new version, raise `MARKETING_VERSION` in the Xcode project (and `ModelStore.bundledVersion` if the models changed), commit, and run `Tools/release.sh`. Forks need their own key: change `repository` and `publicKey` in `FaceRec/ReleaseFeed.swift`.
+To publish a new version, raise `MARKETING_VERSION` in the Xcode project (and `ModelStore.bundledVersion` if the models changed), commit, and run `Tools/release.sh`. Forks need their own key: change `repository` and `publicKey` in `Neural Sentry/ReleaseFeed.swift`.
 
 ### Checks without a camera
 
-The built binary is at `build/Build/Products/Release/FaceRec.app/Contents/MacOS/FaceRec`:
+The built binary is at `build/Build/Products/Release/Neural Sentry.app/Contents/MacOS/Neural Sentry`:
 
 | Command | What it does |
 |---|---|
-| `FaceRec --selftest photo.jpg …` | Loads the models, reports where they run, analyses the photos and exercises the learning and tracking logic |
-| `FaceRec --benchmark pairs.tsv` | Measures accuracy on labelled pairs, one per line: `imageA<TAB>imageB<TAB>1` (same person) or `0` |
-| `FaceRec --render <dir> photo.jpg` | Draws the interface over a photo into `video.png` and `people.png` |
-| `FaceRec --stream-test <address> [seconds]` | Connects to a network camera, then reports frames received, picture size and faces found. Set `FACEREC_RTSP_DEBUG=1` to print the RTSP conversation |
-| `FaceRec --record-test <address> <seconds> <folder> [kinds]` | Records a camera with object detection on, reads the file back and saves one of its frames. With kinds (for example `car,truck`) it records only while one of them is in view |
-| `FaceRec --object-test [address] [seconds]` | Runs the object tracker's simulated cases and, given a camera, counts box flicker with and without tracking |
-| `FaceRec --alert-test [picture.jpg]` | Sends a sample alert through every outside service switched on in Settings › Alerts and prints each result |
-| `FaceRec --update-test` | Runs one update check, download and install without the window. `FACEREC_UPDATE_FEED` can point it at a test release description; signatures are still checked |
+| `"Neural Sentry" --selftest photo.jpg …` | Loads the models, reports where they run, analyses the photos and exercises the learning and tracking logic |
+| `"Neural Sentry" --benchmark pairs.tsv` | Measures accuracy on labelled pairs, one per line: `imageA<TAB>imageB<TAB>1` (same person) or `0` |
+| `"Neural Sentry" --render <dir> photo.jpg` | Draws the interface over a photo into `video.png` and `people.png` |
+| `"Neural Sentry" --stream-test <address> [seconds]` | Connects to a network camera, then reports frames received, picture size and faces found. Set `FACEREC_RTSP_DEBUG=1` to print the RTSP conversation |
+| `"Neural Sentry" --record-test <address> <seconds> <folder> [kinds]` | Records a camera with object detection on, reads the file back and saves one of its frames. With kinds (for example `car,truck`) it records only while one of them is in view |
+| `"Neural Sentry" --object-test [address] [seconds]` | Runs the object tracker's simulated cases and, given a camera, counts box flicker with and without tracking |
+| `"Neural Sentry" --alert-test [picture.jpg]` | Sends a sample alert through every outside service switched on in Settings › Alerts and prints each result |
+| `"Neural Sentry" --update-test` | Runs one update check, download and install without the window. `FACEREC_UPDATE_FEED` can point it at a test release description; signatures are still checked |
 
 ## Licences
 

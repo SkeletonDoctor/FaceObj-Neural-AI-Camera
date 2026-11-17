@@ -20,7 +20,7 @@ struct ContentView: View {
                 }
             } else if let error = model.startupError {
                 ContentUnavailableView {
-                    Label("FaceRec cannot start", systemImage: "video.slash.fill")
+                    Label("Neural Sentry cannot start", systemImage: "video.slash.fill")
                 } description: {
                     Text(error)
                 }
@@ -236,7 +236,7 @@ private struct NoCamerasView: View {
                 Text(model.networkCameras.isEmpty ? "Add your first camera" : "All cameras are switched off")
                     .font(.title2.weight(.semibold))
                 Text(model.networkCameras.isEmpty
-                     ? "FaceRec watches the cameras you add, on your network or plugged into this Mac. It shows them here, logs who appears and can alert you about strangers."
+                     ? "Neural Sentry watches the cameras you add, on your network or plugged into this Mac. It shows them here, logs who appears and can alert you about strangers."
                      : "Turn a camera back on in Settings, or add another one.")
                     .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 440)
             }
@@ -843,7 +843,7 @@ private struct EventsPanel: View {
                     Label(emptyTitle, systemImage: filter == .unconfirmed ? "checkmark.seal" : "clock.arrow.circlepath")
                 } description: {
                     Text(filter == .unconfirmed
-                         ? "When a camera recognises someone, the match waits here. Confirm it and FaceRec learns that view of the person; say it is wrong and it forgets what misled it."
+                         ? "When a camera recognises someone, the match waits here. Confirm it and Neural Sentry learns that view of the person; say it is wrong and it forgets what misled it."
                          : "Everyone the cameras see is kept here with a picture. Unknown faces can be added to People later, and matches can be confirmed or corrected.")
                 }
                 .frame(maxHeight: .infinity)
@@ -1053,7 +1053,7 @@ private struct PeoplePanel: View {
                         symbol: "sparkles") {
                 if !model.people.isEmpty {
                     Button("Add", systemImage: "plus") { model.showAddPerson = true }
-                        .actionButton().help("Teach FaceRec a face using a camera on this Mac")
+                        .actionButton().help("Teach Neural Sentry a face using a camera on this Mac")
                 }
             }
         }
@@ -1218,7 +1218,7 @@ private struct LabelSheet: View {
             return "Recognised as \(current). Type a different name to correct it."
         }
         if let wrong = request.rejectedName, let event = request.event {
-            return "FaceRec took this for \(wrong) on \(event.camera). Name the right person and it will forget what misled it."
+            return "Neural Sentry took this for \(wrong) on \(event.camera). Name the right person and it will forget what misled it."
         }
         if let event = request.event {
             return "Seen on \(event.camera), \(event.date.formatted(date: .abbreviated, time: .shortened)). Naming adds this person to People."

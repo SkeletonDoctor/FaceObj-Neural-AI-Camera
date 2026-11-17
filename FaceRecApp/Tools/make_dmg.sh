@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds a distributable build/FaceRec-<version>.dmg (Apple Silicon).
+# Builds a distributable build/Neural-Sentry-<version>.dmg (Apple Silicon).
 # With --no-build it repackages the app already built in build/release.
 # The app is signed to run locally, not with a personal certificate, and is
 # not notarised: people who download it must allow it once in System Settings.
@@ -14,15 +14,15 @@ xcodebuild -project FaceRec.xcodeproj -scheme FaceRec -configuration Release \
     -derivedDataPath build/release ARCHS=arm64 CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual \
     DEBUG_INFORMATION_FORMAT=dwarf-with-dsym build | grep -E "error|BUILD" || true
 fi
-APP="build/release/Build/Products/Release/FaceRec.app"
+APP="build/release/Build/Products/Release/Neural Sentry.app"
 [ -d "$APP" ] || { echo "Build failed." >&2; exit 1; }
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 # Copy without extended attributes: Finder and cloud-sync attributes picked up
 # in the build folder would invalidate the app's signature for other people.
-ditto --noextattr --norsrc "$APP" "$STAGE/FaceRec.app"
-codesign --verify --deep --strict "$STAGE/FaceRec.app" || { echo "The app's signature does not verify." >&2; exit 1; }
+ditto --noextattr --norsrc "$APP" "$STAGE/Neural Sentry.app"
+codesign --verify --deep --strict "$STAGE/Neural Sentry.app" || { echo "The app's signature does not verify." >&2; exit 1; }
 ln -s /Applications "$STAGE/Applications"
-DMG="build/FaceRec-$VERSION.dmg"
-hdiutil create -volname "FaceRec" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
+DMG="build/Neural-Sentry-$VERSION.dmg"
+hdiutil create -volname "Neural Sentry" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 echo "Disk image: $(pwd)/$DMG"

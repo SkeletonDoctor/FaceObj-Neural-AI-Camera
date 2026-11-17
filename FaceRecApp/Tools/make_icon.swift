@@ -1,4 +1,4 @@
-// Draws the FaceRec app icon and writes every size the asset catalog needs.
+// Draws the Neural Sentry app icon and writes every size the asset catalog needs.
 // Usage: swift Tools/make_icon.swift FaceRec/Assets.xcassets/AppIcon.appiconset
 import AppKit
 

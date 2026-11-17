@@ -230,7 +230,7 @@ final class FaceStore: @unchecked Sendable {
 
     static var defaultURL: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("FaceRec", isDirectory: true)
+            .appendingPathComponent("FaceRec", isDirectory: true)   // the app's name until 1.9; kept so nobody loses their data
         return dir.appendingPathComponent("faces.json")
     }
 

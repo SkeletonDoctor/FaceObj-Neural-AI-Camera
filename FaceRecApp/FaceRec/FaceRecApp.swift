@@ -3,7 +3,7 @@ import SwiftUI
 @main
 enum Main {
     static func main() {
-        // `FaceRec --selftest photo.jpg ...` checks the pipeline without a camera or window.
+        // `"Neural Sentry" --selftest photo.jpg ...` checks the pipeline without a camera or window.
         if let flag = CommandLine.arguments.firstIndex(of: "--selftest") {
             let arguments = Array(CommandLine.arguments[(flag + 1)...])
             Task.detached {
@@ -12,7 +12,7 @@ enum Main {
             }
             dispatchMain()
         }
-        // `FaceRec --update-test` runs one update check, download and install without the window
+        // `"Neural Sentry" --update-test` runs one update check, download and install without the window
         // (use with FACEREC_UPDATE_FEED), then prints what happened.
         if CommandLine.arguments.contains("--update-test") {
             Task { @MainActor in
@@ -33,7 +33,7 @@ enum Main {
             }
             dispatchMain()
         }
-        // `FaceRec --alert-test [picture.jpg]` sends a sample alert through every outside service
+        // `"Neural Sentry" --alert-test [picture.jpg]` sends a sample alert through every outside service
         // that is switched on in Settings › Alerts, and prints what each one answered.
         if let flag = CommandLine.arguments.firstIndex(of: "--alert-test") {
             let picture = CommandLine.arguments.dropFirst(flag + 1).first.flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) }
@@ -57,24 +57,24 @@ enum Main {
             }
             dispatchMain()
         }
-        // `FaceRec --record-test <address> <seconds> <folder>` records a camera and checks the file.
+        // `"Neural Sentry" --record-test <address> <seconds> <folder>` records a camera and checks the file.
         if let flag = CommandLine.arguments.firstIndex(of: "--record-test") {
             RecordTest.run(Array(CommandLine.arguments[(flag + 1)...]))
         }
-        // `FaceRec --object-test [address] [seconds]` checks the object tracker.
+        // `"Neural Sentry" --object-test [address] [seconds]` checks the object tracker.
         if let flag = CommandLine.arguments.firstIndex(of: "--object-test") {
             ObjectTest.run(Array(CommandLine.arguments[(flag + 1)...]))
         }
-        // `FaceRec --stream-test rtsp://camera/stream` connects to a network camera without the window.
+        // `"Neural Sentry" --stream-test rtsp://camera/stream` connects to a network camera without the window.
         if let flag = CommandLine.arguments.firstIndex(of: "--stream-test") {
             StreamTest.run(Array(CommandLine.arguments[(flag + 1)...]))
         }
-        // `FaceRec --benchmark pairs.tsv` measures recognition accuracy on labelled pairs.
+        // `"Neural Sentry" --benchmark pairs.tsv` measures recognition accuracy on labelled pairs.
         if let flag = CommandLine.arguments.firstIndex(of: "--benchmark") {
             Benchmark.run(Array(CommandLine.arguments[(flag + 1)...]))
             exit(0)
         }
-        // `FaceRec --render <dir> photo.jpg` draws the interface over a photo into PNG files.
+        // `"Neural Sentry" --render <dir> photo.jpg` draws the interface over a photo into PNG files.
         if let flag = CommandLine.arguments.firstIndex(of: "--render"), CommandLine.arguments.count > flag + 2 {
             let directory = URL(fileURLWithPath: CommandLine.arguments[flag + 1])
             let photo = URL(fileURLWithPath: CommandLine.arguments[flag + 2])
@@ -84,6 +84,8 @@ enum Main {
             }
             dispatchMain()
         }
+        // A copy that updated itself from FaceRec (the name until 1.9) renames its bundle first.
+        if BundleRename.adoptNewName() { exit(0) }
         FaceRecApp.main()
     }
 }
@@ -93,7 +95,7 @@ struct FaceRecApp: App {
     @StateObject private var model = AppModel.shared
 
     var body: some Scene {
-        Window("FaceRec", id: "main") {
+        Window("Neural Sentry", id: "main") {
             ContentView()
                 .environmentObject(model)
                 .frame(minWidth: 760, minHeight: 460)
