@@ -19,17 +19,28 @@ struct MetalVideoView: NSViewRepresentable {
         view.isPaused = true
         view.enableSetNeedsDisplay = false
         view.delegate = context.coordinator
-        frames.onNewFrame { [weak view] in
-            DispatchQueue.main.async { view?.draw() }
-        }
+        bind(view, context.coordinator)
         return view
     }
 
-    func updateNSView(_ view: MTKView, context: Context) {}
+    /// SwiftUI may reuse this view for a different camera: follow the new one.
+    func updateNSView(_ view: MTKView, context: Context) {
+        guard context.coordinator.frames !== frames else { return }
+        context.coordinator.frames.onNewFrame(nil)
+        bind(view, context.coordinator)
+        view.draw()
+    }
+
+    private func bind(_ view: MTKView, _ renderer: Renderer) {
+        renderer.frames = frames
+        frames.onNewFrame { [weak view] in
+            DispatchQueue.main.async { view?.draw() }
+        }
+    }
 
     final class Renderer: NSObject, MTKViewDelegate {
         let device: MTLDevice?
-        private let frames: FrameBox
+        var frames: FrameBox
         private var queue: MTLCommandQueue?
         private var pipeline: MTLRenderPipelineState?
         private var textureCache: CVMetalTextureCache?

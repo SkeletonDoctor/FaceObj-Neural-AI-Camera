@@ -4,21 +4,19 @@ struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showPeople = false
     @State private var sideTab = SidePanel.Tab.people
+    @State private var showObjects = false
     @FocusState private var videoFocused: Bool
+
+    /// Several cameras at once (or security mode, where there is always room for one more).
+    private var showsGrid: Bool { model.gridMode && (model.feeds.count > 1 || (model.securityMode && !model.feeds.isEmpty)) }
 
     var body: some View {
         ZStack {
-            Color.black
+            Color(red: 0.035, green: 0.04, blue: 0.05)
             if model.engine != nil {
                 if model.feeds.isEmpty {
-                    ContentUnavailableView {
-                        Label("No cameras", systemImage: "video.slash")
-                    } description: {
-                        Text("Security mode uses network cameras only. Add one to start watching.")
-                    } actions: {
-                        SettingsLink { Text("Add a Network Camera…") }
-                    }
-                } else if model.feeds.count > 1, model.gridMode {
+                    NoCamerasView()
+                } else if showsGrid {
                     CameraGrid()
                 } else if let feed = model.selectedFeed {
                     FeedView(feed: feed).id(feed.id)
@@ -38,8 +36,8 @@ struct ContentView: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if model.engine != nil, !(model.feeds.count > 1 && model.gridMode) {
-                StatusBar(model: model.status).padding(14)
+            if model.engine != nil, !showsGrid, let feed = model.selectedFeed {
+                StatusBar(model: feed.status, name: model.feeds.count > 1 ? feed.name : nil).padding(14)
             }
         }
         .overlay(alignment: .bottom) {
@@ -51,14 +49,14 @@ struct ContentView: View {
                         .background(.regularMaterial, in: Capsule())
                         .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
                         .transition(.move(edge: .bottom).combined(with: .opacity))
-                } else if model.engine != nil, !(model.feeds.count > 1 && model.gridMode) {
+                } else if model.engine != nil, !showsGrid {
                     NamingHint(model: model.status).transition(.opacity)
                 }
                 UpdateCapsule(updater: Updater.shared)
             }
             .padding(.bottom, 18)
+            .animation(.spring(duration: 0.3), value: model.toast)
         }
-        .animation(.spring(duration: 0.3), value: model.toast)
         .focusable()
         .focused($videoFocused)
         .focusEffectDisabled()
@@ -68,7 +66,7 @@ struct ContentView: View {
             case "o": model.toggleObjects()
             case "s": model.save()
             case "l": sideTab = .people; togglePeople(!(showPeople && sideTab == .people))
-            case "e": sideTab = .events; model.unseenEvents = 0; togglePeople(true)
+            case "e", "h": sideTab = .events; model.unseenEvents = 0; togglePeople(true)
             case "g": if model.feeds.count > 1 { model.gridMode.toggle() }
             default: return .ignored
             }
@@ -76,10 +74,14 @@ struct ContentView: View {
         }
         .toolbar { toolbar }
         .inspector(isPresented: $showPeople) {
-            SidePanel(tab: $sideTab).inspectorColumnWidth(min: 260, ideal: 310, max: 420)
+            SidePanel(tab: $sideTab).inspectorColumnWidth(min: 270, ideal: 320, max: 420)
         }
         .sheet(item: $model.labelRequest) { LabelSheet(request: $0) }
         .sheet(isPresented: $model.showEnrol) { EnrolSheet() }
+        .sheet(item: $model.cameraDraft) { draft in
+            CameraEditorSheet(draft: draft) { model.saveCamera($0) }
+        }
+        .sheet(isPresented: $model.showModeChooser) { ModeChooser() }
         .alert(item: $model.notice) {
             Alert(title: Text($0.title), message: Text($0.message))
         }
@@ -96,49 +98,61 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        if !model.securityMode {
-        ToolbarItem(placement: .navigation) {
-            Picker("Camera", selection: Binding(get: { model.cameraID }, set: { model.selectCamera($0) })) {
-                ForEach(model.cameras) { Text($0.name).tag(Optional($0.id)) }
-            }
-            .help("Choose the camera")
-        }
-        ToolbarItem(placement: .navigation) {
-            Menu {
-                Picker("Resolution", selection: Binding(
-                    get: { model.mode.map { "\($0.width)x\($0.height)" } ?? "" },
-                    set: { model.selectResolution($0) })) {
-                    ForEach(model.resolutions) { Text($0.label).tag($0.id) }
+        // Left: what belongs to the current mode.
+        if model.securityMode {
+            ToolbarItem(placement: .navigation) {
+                Button { model.addCamera() } label: {
+                    Label("Add Camera", systemImage: "plus").labelStyle(.titleAndIcon)
                 }
-                .pickerStyle(.inline)
-                Picker("Frame Rate", selection: Binding(get: { model.mode?.fps ?? 0 }, set: { model.selectFrameRate($0) })) {
-                    ForEach(model.frameRates, id: \.self) { Text("\(String($0)) fps").tag($0) }
-                }
-                .pickerStyle(.inline)
-            } label: {
-                Label(model.mode.map { "\(String($0.height))p · \(String($0.fps)) fps" } ?? "Quality", systemImage: "slider.horizontal.3")
-                    .labelStyle(.titleAndIcon)
+                .help("Add a network camera")
             }
-            .disabled(model.resolutions.isEmpty)
-            .help("Camera resolution and frame rate")
-        }
         } else {
             ToolbarItem(placement: .navigation) {
-                Label("Security mode", systemImage: "shield.lefthalf.filled")
-                    .labelStyle(.titleAndIcon).foregroundStyle(.green)
-                    .help("Security mode: network cameras only. This Mac's camera is off.")
+                Picker("Camera", selection: Binding(get: { model.cameraID }, set: { model.selectCamera($0) })) {
+                    ForEach(model.cameras) { Text($0.name).tag(Optional($0.id)) }
+                }
+                .help("Choose the camera")
+            }
+            ToolbarItem(placement: .navigation) {
+                Menu {
+                    Picker("Resolution", selection: Binding(
+                        get: { model.mode.map { "\($0.width)x\($0.height)" } ?? "" },
+                        set: { model.selectResolution($0) })) {
+                        ForEach(model.resolutions) { Text($0.label).tag($0.id) }
+                    }
+                    .pickerStyle(.inline)
+                    Picker("Frame Rate", selection: Binding(get: { model.mode?.fps ?? 0 }, set: { model.selectFrameRate($0) })) {
+                        ForEach(model.frameRates, id: \.self) { Text("\(String($0)) fps").tag($0) }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Label(model.mode.map { "\(String($0.height))p · \(String($0.fps)) fps" } ?? "Quality", systemImage: "slider.horizontal.3")
+                        .labelStyle(.titleAndIcon)
+                }
+                .disabled(model.resolutions.isEmpty)
+                .help("Camera resolution and frame rate")
             }
         }
+
+        // Centre: the mode.
+        ToolbarItem(placement: .principal) {
+            Picker("Mode", selection: Binding(get: { model.securityMode }, set: { model.setMode(security: $0) })) {
+                Label("This Mac", systemImage: "laptopcomputer").tag(false)
+                Label("Security", systemImage: "shield.lefthalf.filled").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelStyle(.titleAndIcon)
+            .frame(width: 230)
+            .help("This Mac: recognise people at this Mac's camera. Security: watch network cameras, log who appears and get alerts.")
+        }
+
+        // Right: actions and panels.
         ToolbarItem(placement: .primaryAction) {
             Button { model.beginLabel() } label: {
                 Label("Name Face", systemImage: "person.crop.circle.badge.plus").labelStyle(.titleAndIcon)
             }
             .buttonStyle(.borderedProminent)
-            .help("Name the largest face in frame (A)")
-        }
-        ToolbarItem(placement: .primaryAction) {
-            Toggle(isOn: $model.securityMode) { Label("Security Mode", systemImage: "shield.lefthalf.filled") }
-                .help("Security mode: watch network cameras only, with this Mac's camera off")
+            .help("Name the largest face in view (A)")
         }
         if model.feeds.count > 1 {
             ToolbarItem(placement: .primaryAction) {
@@ -147,10 +161,12 @@ struct ContentView: View {
             }
         }
         ToolbarItem(placement: .primaryAction) {
-            Toggle(isOn: Binding(get: { model.objectsEnabled }, set: { _ in model.toggleObjects() })) {
-                Label("Objects", systemImage: "cube.transparent")
+            Button { showObjects.toggle() } label: {
+                Label("Objects", systemImage: model.objectsEnabled ? "cube.fill" : "cube.transparent")
+                    .foregroundStyle(model.objectsEnabled ? Color.accentColor : .primary)
             }
-            .help("Object detection (O)")
+            .help("Object detection and which objects to show (O turns it on and off)")
+            .popover(isPresented: $showObjects, arrowEdge: .bottom) { ObjectsPopover() }
         }
         ToolbarItem(placement: .primaryAction) {
             Menu {
@@ -159,21 +175,47 @@ struct ContentView: View {
                 Divider()
                 Button("Save Database", systemImage: "square.and.arrow.down") { model.save() }
                 Divider()
-                SettingsLink { Label("Network Cameras and Settings…", systemImage: "gearshape") }
+                SettingsLink { Label("Settings…", systemImage: "gearshape") }
                 Button("Check for Updates…", systemImage: "arrow.triangle.2.circlepath") { model.checkForUpdates() }
-                Toggle("Update Automatically", isOn: Binding(get: { Updater.shared.automatic },
-                                                             set: { Updater.shared.automatic = $0 }))
             } label: {
                 Label("More", systemImage: "ellipsis.circle")
             }
-            .help("Photos and saving")
+            .help("Photos, saving, settings and updates")
         }
         ToolbarItem(placement: .primaryAction) {
             Toggle(isOn: Binding(get: { showPeople }, set: togglePeople)) {
-                Label("People and Events", systemImage: model.unseenEvents > 0 ? "person.2.badge.plus" : "person.2")
+                Label("People and History", systemImage: model.unseenEvents > 0 ? "person.2.badge.plus" : "person.2")
             }
-            .help(model.unseenEvents > 0 ? "\(model.unseenEvents) new security event(s). People (L), Events (E)" : "People (L) and security events (E)")
+            .help(model.unseenEvents > 0 ? "\(model.unseenEvents) new face(s) in the history. People (L), History (H)" : "People (L) and face history (H)")
         }
+    }
+}
+
+/// Security mode with nothing to watch yet.
+private struct NoCamerasView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "shield.lefthalf.filled").font(.system(size: 44)).foregroundStyle(.green)
+                .frame(width: 88, height: 88).background(.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 22))
+            VStack(spacing: 6) {
+                Text(model.networkCameras.isEmpty ? "Add your first camera" : "All cameras are switched off")
+                    .font(.title2.weight(.semibold))
+                Text(model.networkCameras.isEmpty
+                     ? "Security mode watches cameras on your network. Add one by its address and FaceRec will show it here, log who appears and alert you about strangers."
+                     : "Turn a camera back on in Settings, or add another one.")
+                    .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 420)
+            }
+            HStack(spacing: 10) {
+                Button { model.addCamera() } label: { Label("Add Camera…", systemImage: "plus") }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                if !model.networkCameras.isEmpty {
+                    SettingsLink { Text("Open Settings…") }.controlSize(.large)
+                }
+            }
+        }
+        .padding(40)
     }
 }
 
@@ -212,29 +254,38 @@ struct FeedView: View {
     }
 }
 
-/// Every camera at once. Click a tile to select it, double-click to show it alone.
+/// Every camera at once. Click a tile to select it, double-click to show it
+/// alone. In security mode the last tile adds another camera.
 struct CameraGrid: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
         GeometryReader { proxy in
-            let count = model.feeds.count
-            let columns = Int(Double(count).squareRoot().rounded(.up))
-            let rows = Int((Double(count) / Double(columns)).rounded(.up))
-            let spacing: CGFloat = 6
+            let count = model.feeds.count + (model.securityMode ? 1 : 0)
+            let columns = max(1, Int(Double(count).squareRoot().rounded(.up)))
+            let rows = max(1, Int((Double(count) / Double(columns)).rounded(.up)))
+            let spacing: CGFloat = 8
             let width = (proxy.size.width - spacing * CGFloat(columns + 1)) / CGFloat(columns)
             let height = (proxy.size.height - spacing * CGFloat(rows + 1)) / CGFloat(rows)
             VStack(spacing: spacing) {
                 ForEach(0..<rows, id: \.self) { row in
                     HStack(spacing: spacing) {
-                        ForEach(model.feeds[(row * columns)..<min((row + 1) * columns, count)]) { feed in
-                            CameraTile(feed: feed, selected: feed.id == model.selectedFeedID)
-                                .frame(width: max(width, 40), height: max(height, 30))
-                                .onTapGesture(count: 2) {
-                                    model.selectedFeedID = feed.id
-                                    model.gridMode = false
+                        ForEach((row * columns)..<min((row + 1) * columns, count), id: \.self) { index in
+                            Group {
+                                if index < model.feeds.count {
+                                    let feed = model.feeds[index]
+                                    CameraTile(feed: feed, selected: feed.id == model.selectedFeedID)
+                                        .id(feed.id)
+                                        .onTapGesture(count: 2) {
+                                            model.selectedFeedID = feed.id
+                                            model.gridMode = false
+                                        }
+                                        .onTapGesture { model.selectedFeedID = feed.id }
+                                } else {
+                                    AddCameraTile()
                                 }
-                                .onTapGesture { model.selectedFeedID = feed.id }
+                            }
+                            .frame(width: max(width, 40), height: max(height, 30))
                         }
                     }
                 }
@@ -247,34 +298,128 @@ struct CameraGrid: View {
 struct CameraTile: View {
     @ObservedObject var feed: FeedModel
     let selected: Bool
+    @EnvironmentObject private var model: AppModel
+    @State private var hovering = false
 
     var body: some View {
         FeedView(feed: feed)
-            .overlay(alignment: .bottomLeading) { TileLabel(name: feed.name, status: feed.status).padding(8) }
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? Color.accentColor : .white.opacity(0.10),
+            .overlay(alignment: .topLeading) { TileHeader(feed: feed).padding(8) }
+            .overlay(alignment: .bottomLeading) { TileStats(status: feed.status).padding(8) }
+            .overlay(alignment: .topTrailing) {
+                if hovering {
+                    HStack(spacing: 6) {
+                        tileButton("arrow.up.left.and.arrow.down.right", help: "Show this camera alone") {
+                            model.selectedFeedID = feed.id
+                            model.gridMode = false
+                        }
+                        if !feed.isLocal {
+                            Menu {
+                                menuItems
+                            } label: {
+                                Image(systemName: "ellipsis").font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                                    .frame(width: 26, height: 26).background(.black.opacity(0.6), in: Circle())
+                            }
+                            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                            .help("Edit, switch off or remove this camera")
+                        }
+                    }
+                    .padding(8)
+                    .transition(.opacity)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? Color.accentColor : .white.opacity(0.10),
                                                                     lineWidth: selected ? 2 : 1))
+            .shadow(color: .black.opacity(0.35), radius: 6, y: 2)
             .contentShape(Rectangle())
+            .onHover { inside in withAnimation(.easeOut(duration: 0.12)) { hovering = inside } }
+            .contextMenu { if !feed.isLocal { menuItems } }
             .accessibilityLabel(feed.name)
+    }
+
+    @ViewBuilder private var menuItems: some View {
+        Button("Edit…", systemImage: "pencil") { model.editCamera(id: feed.id) }
+        Button("Switch Off", systemImage: "power") { model.setCamera(id: feed.id, enabled: false) }
+        Divider()
+        Button("Remove", systemImage: "trash", role: .destructive) { model.removeCamera(id: feed.id) }
+    }
+
+    private func tileButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                .frame(width: 26, height: 26).background(.black.opacity(0.6), in: Circle())
+        }
+        .buttonStyle(.plain).help(help)
     }
 }
 
-/// A tile's name with how fast its video arrives and how often it is analysed.
-struct TileLabel: View {
-    let name: String
-    @ObservedObject var status: StatusModel
+/// The dashed tile that adds another camera.
+private struct AddCameraTile: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var hovering = false
 
     var body: some View {
-        let s = status.summary
+        Button { model.addCamera() } label: {
+            VStack(spacing: 10) {
+                Image(systemName: "plus").font(.system(size: 26, weight: .medium))
+                    .frame(width: 56, height: 56).background(.white.opacity(hovering ? 0.14 : 0.08), in: Circle())
+                Text("Add Camera").font(.callout.weight(.medium))
+            }
+            .foregroundStyle(.white.opacity(hovering ? 0.95 : 0.6))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.white.opacity(hovering ? 0.05 : 0.02), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(.white.opacity(hovering ? 0.35 : 0.18), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("Add a network camera")
+    }
+}
+
+/// A tile's name with a dot for its connection: green live, amber connecting, red failing.
+private struct TileHeader: View {
+    @ObservedObject var feed: FeedModel
+
+    var body: some View {
         HStack(spacing: 6) {
-            Text(name).font(.system(size: 12, weight: .semibold))
-            Text("\(String(s.fps)) fps · analysed \(String(s.detectionsPerSecond))/s")
-                .font(.system(size: 11, weight: .medium).monospacedDigit()).foregroundStyle(.white.opacity(0.65))
+            Circle().fill(colour).frame(width: 7, height: 7)
+            Image(systemName: feed.isLocal ? "laptopcomputer" : "video.fill").font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.7))
+            Text(feed.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 9).frame(height: 24)
         .background(.black.opacity(0.6), in: Capsule())
-        .help("Video frames per second, and how many of them are analysed for faces each second")
+        .overlay(Capsule().strokeBorder(.white.opacity(0.10)))
+    }
+
+    private var colour: Color {
+        switch feed.connection {
+        case .live: .green
+        case .connecting: .orange
+        case .failed: .red
+        }
+    }
+}
+
+/// How fast a tile's video arrives and how often it is analysed.
+private struct TileStats: View {
+    @ObservedObject var status: StatusModel
+
+    var body: some View {
+        let s = status.summary
+        HStack(spacing: 8) {
+            Label("\(String(s.fps)) fps", systemImage: "video").help("Video frames per second")
+            Label("\(String(s.detectionsPerSecond))/s", systemImage: "bolt.fill").help("Frames analysed for faces each second")
+            if s.faces > 0 { Label("\(String(s.faces))", systemImage: "face.smiling").help("Faces in view") }
+        }
+        .font(.system(size: 10.5, weight: .medium).monospacedDigit())
+        .labelStyle(.titleAndIcon)
+        .foregroundStyle(.white.opacity(0.8))
+        .padding(.horizontal, 9).frame(height: 22)
+        .background(.black.opacity(0.55), in: Capsule())
     }
 }
 
@@ -283,10 +428,13 @@ struct TileLabel: View {
 /// Live numbers in small glass capsules at the top-left of the video.
 struct StatusBar: View {
     @ObservedObject var model: StatusModel
+    /// The camera's name, shown when there is more than one.
+    var name: String?
 
     var body: some View {
         let s = model.summary
         HStack(spacing: 8) {
+            if let name { chip(name, symbol: "video.fill", tint: .white, help: "The camera on screen") }
             chip("\(s.fps) fps", symbol: "circle.fill", tint: s.fps > 0 ? .red : .secondary, help: "Camera frame rate")
             chip("\(s.detectionsPerSecond)/s", symbol: "bolt.fill", tint: .yellow, help: "Frames analysed per second on the Neural Engine")
             chip("\(s.faces)", symbol: "face.smiling", tint: .white, help: "Faces in view")
@@ -423,7 +571,7 @@ struct AngleGrid: View {
     }
 }
 
-/// The side panel: known people, and the security log.
+/// The side panel: known people, and the history of faces seen.
 struct SidePanel: View {
     enum Tab { case people, events }
     @Binding var tab: Tab
@@ -433,7 +581,7 @@ struct SidePanel: View {
         VStack(spacing: 0) {
             Picker("Show", selection: $tab) {
                 Text("People").tag(Tab.people)
-                Text(model.unseenEvents > 0 ? "Events (\(model.unseenEvents))" : "Events").tag(Tab.events)
+                Text(model.unseenEvents > 0 ? "History (\(model.unseenEvents))" : "History").tag(Tab.events)
             }
             .pickerStyle(.segmented).labelsHidden()
             .padding(.horizontal, 12).padding(.vertical, 10)
@@ -447,46 +595,67 @@ struct SidePanel: View {
     }
 }
 
-/// The security log: who appeared on which network camera, newest first.
+/// The face history: who appeared on which camera, newest first. Unknown
+/// faces can be added to People from here.
 private struct EventsPanel: View {
     @ObservedObject var log: EventLog
     @EnvironmentObject private var model: AppModel
     @State private var showing: SecurityEvent?
     @State private var confirmClear = false
+    @State private var unknownOnly = false
 
     var body: some View {
+        let events = unknownOnly ? log.events.filter { $0.name == nil } : log.events
         VStack(spacing: 0) {
-            if log.events.isEmpty {
+            Picker("Show", selection: $unknownOnly) {
+                Text("Everyone").tag(false)
+                Text("Unknown only").tag(true)
+            }
+            .pickerStyle(.segmented).labelsHidden().controlSize(.small)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+
+            if events.isEmpty {
                 ContentUnavailableView {
-                    Label("No events yet", systemImage: "shield")
+                    Label(unknownOnly ? "No unknown faces" : "No faces yet", systemImage: "clock.arrow.circlepath")
                 } description: {
-                    Text("When someone appears on a network camera, it is logged here with a picture.")
+                    Text("Faces the app does not know are kept here with a picture, so you can add them to People later. Network cameras log everyone who appears.")
                 }
             } else {
-                List(log.events) { event in
-                    Button { showing = event } label: {
-                        HStack(spacing: 12) {
-                            Avatar(name: event.name ?? "?", image: log.image(event.face))
-                                .overlay(Circle().strokeBorder(event.name == nil ? Color.orange : .clear, lineWidth: 2))
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(event.name ?? "Unknown person").font(.body.weight(.semibold))
-                                    .foregroundStyle(event.name == nil ? Color.orange : .primary).lineLimit(1)
-                                Text("\(event.camera) · \(event.date.formatted(date: .abbreviated, time: .standard))")
-                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                            }
-                            Spacer(minLength: 0)
+                List(events) { event in
+                    HStack(spacing: 12) {
+                        Avatar(name: event.name ?? "?", image: log.image(event.face))
+                            .overlay(Circle().strokeBorder(event.name == nil ? Color.orange : .clear, lineWidth: 2))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(event.name ?? "Unknown person").font(.body.weight(.semibold))
+                                .foregroundStyle(event.name == nil ? Color.orange : .primary).lineLimit(1)
+                            Text("\(event.camera) · \(event.date.formatted(.dateTime.month(.abbreviated).day().hour().minute()))")
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
-                        .padding(.vertical, 4)
-                        .contentShape(Rectangle())
+                        Spacer(minLength: 0)
+                        if event.name == nil, event.samples != nil {
+                            Button("Add…") { model.beginLabel(event: event) }
+                                .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+                                .help("Name this person and add them to People")
+                        } else if event.added == true {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Added to People from here")
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                    .onTapGesture { showing = event }
+                    .contextMenu {
+                        if event.name == nil, event.samples != nil {
+                            Button("Add to People…", systemImage: "person.crop.circle.badge.plus") { model.beginLabel(event: event) }
+                        }
+                        Button("Show Snapshot", systemImage: "photo") { showing = event }
+                    }
                 }
                 .listStyle(.inset)
                 .scrollContentBackground(.hidden)
             }
             Divider()
             HStack {
-                Label("Network cameras only", systemImage: "shield.lefthalf.filled").font(.caption).foregroundStyle(.secondary)
+                Text("\(log.events.count) of the latest \(EventLog.limit) kept").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Clear…") { confirmClear = true }.controlSize(.small).disabled(log.events.isEmpty)
             }
@@ -507,16 +676,22 @@ private struct EventsPanel: View {
                             .font(.callout).foregroundStyle(.secondary)
                     }
                     Spacer()
+                    if event.name == nil, event.samples != nil {
+                        Button("Add to People…") {
+                            showing = nil
+                            model.beginLabel(event: event)
+                        }
+                    }
                     Button("Done") { showing = nil }.keyboardShortcut(.defaultAction)
                 }
             }
             .padding(20)
             .frame(width: 640)
         }
-        .confirmationDialog("Clear the security log?", isPresented: $confirmClear) {
-            Button("Clear \(log.events.count) Events", role: .destructive) { log.clear() }
+        .confirmationDialog("Clear the face history?", isPresented: $confirmClear) {
+            Button("Clear \(log.events.count) Entries", role: .destructive) { log.clear() }
         } message: {
-            Text("The events and their pictures will be deleted. This cannot be undone.")
+            Text("The entries and their pictures will be deleted. People you have already added are kept. This cannot be undone.")
         }
     }
 }
@@ -641,7 +816,7 @@ private struct LabelSheet: View {
     @FocusState private var focused: Bool
 
     private var picture: NSImage? {
-        request.candidate.picture?.cgImage.map { NSImage(cgImage: $0, size: NSSize(width: 160, height: 160)) }
+        request.picture ?? request.candidate.picture?.cgImage.map { NSImage(cgImage: $0, size: NSSize(width: 160, height: 160)) }
     }
 
     var body: some View {
@@ -691,6 +866,9 @@ private struct LabelSheet: View {
         let views = request.candidate.samples.count
         if let current = request.candidate.currentName {
             return "Recognised as \(current). Type a different name to correct it."
+        }
+        if let event = request.event {
+            return "Seen on \(event.camera), \(event.date.formatted(date: .abbreviated, time: .shortened)). Naming adds this person to People."
         }
         return views > 1 ? "\(views) angles of this face are ready to save." : "Type a name to start recognising this face."
     }

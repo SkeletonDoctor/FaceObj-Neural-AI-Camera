@@ -52,6 +52,18 @@ final class AvatarStore: @unchecked Sendable {
         saveIndex()
     }
 
+    /// Uses a saved picture file for a person who has none yet.
+    func adopt(name: String, picture: URL) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard qualities[name] == nil else { return }
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? FileManager.default.removeItem(at: fileURL(name))
+        guard (try? FileManager.default.copyItem(at: picture, to: fileURL(name))) != nil else { return }
+        qualities[name] = 0.3
+        saveIndex()
+    }
+
     func image(_ name: String) -> NSImage? {
         guard let data = try? Data(contentsOf: fileURL(name)) else { return nil }
         return NSImage(data: data)

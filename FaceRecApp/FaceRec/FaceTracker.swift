@@ -174,7 +174,7 @@ final class FaceTrack {
         }
         if name == nil, hits >= 8, !announcedUnknown {
             announcedUnknown = true
-            return Sighting(name: nil, confidence: 0, crop: bestCrop?.crop)
+            return Sighting(name: nil, confidence: 0, crop: bestCrop?.crop, samples: labelSamples)
         }
         return nil
     }

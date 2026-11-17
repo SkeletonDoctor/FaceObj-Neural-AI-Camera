@@ -22,25 +22,40 @@ Because the app is not notarised, macOS asks for camera access again after each 
 
 ## Using it
 
+The switch at the top of the window picks the mode, and FaceRec asks which you want the first time it opens.
+
+| Mode | What it does |
+|---|---|
+| **This Mac** | Recognises people in front of this Mac's camera. Network cameras are not connected. |
+| **Security** | Watches your network cameras in a grid, logs who appears and can alert you. This Mac's camera is off unless you turn it on in Settings › Security. |
+
 | Key | Toolbar | Action |
 |---|---|---|
-| `A` | Name Face | Name the largest face in frame (shows its picture; pick an existing person to add to them) |
-| | Camera and quality menus | Choose the camera, its resolution and its frame rate (remembered per camera) |
-| `E` | People and Events | Show the security log |
-| | Security Mode | Network cameras only, with this Mac's camera off |
-| `G` | Grid | With network cameras added: show every camera, or only the selected one |
-| `O` | Objects | Toggle object detection (80 everyday object classes) |
-| `L` | People | Show known people with their picture and learned angles; hover a row for rename and delete |
+| `A` | Name Face | Name the largest face in view (shows its picture; pick an existing person to add to them) |
+| | Camera and quality menus | This Mac mode: choose the camera, its resolution and its frame rate |
+| | Add Camera | Security mode: add a network camera |
+| `G` | Grid | With several cameras: show every camera, or only the selected one |
+| `O` | Objects | Turn object detection on or off; the button opens the object filter |
+| `L` | People and History | Known people, with their picture and learned angles |
+| `H` | People and History | The history of faces seen |
 | `S` | More › Save Database | Save the database now |
 | | More › Enrol from Photos | Add a person from image files |
 | | More › Identify a Photo | Recognise the faces in an image file |
-| `⌘,` | More › Network Cameras and Settings | Add network cameras and change settings |
+| `⌘,` | More › Settings | Network cameras, security and general settings |
 
-On the video, a white bracket is an unknown face and a green one a recognised face (shading to orange for weaker matches). A spark next to a name means that frame was just learned. The capsules at the top-left show camera frame rate, frames analysed per second, faces in view, samples learned since launch and, when on, objects in view.
+On the video, a white bracket is an unknown face and a green one a recognised face (shading to orange for weaker matches). A spark next to a name means that frame was just learned.
+
+### Face history
+
+Faces the app does not know are kept in the History tab with a picture, the camera and the time, so you can add someone to People after the fact: click **Add…**, type a name, and the person is enrolled from the views that were captured. Other history entries of the same person are named too. Network cameras log everyone who appears, known or not; this Mac's camera logs unknown faces only. The latest 300 entries are kept.
+
+### Object filter
+
+The Objects button opens a panel to turn detection on, set how sure the detector must be before a box is shown, and choose which of the 80 kinds of object to show. **Security** keeps people, vehicles, pets and bags only.
 
 ## Network cameras
 
-Add IP cameras in **Settings › Network Cameras** by address. They appear in a grid beside this Mac's camera; click a tile to select it and double-click to show it alone. Faces seen on any camera are recognised and learned the same way.
+In Security mode, add IP cameras with **Add Camera** (in the toolbar, or the dashed tile in the grid). Pick the camera's make, type its address, user name and password, and FaceRec builds the stream address for Hikvision, Dahua, Amcrest, Reolink, TP-Link Tapo, Axis and Foscam cameras; or paste a full address. **Test Connection** shows the camera's picture before you add it. Cameras appear in a grid: click a tile to select it, double-click to show it alone, and hover for edit, switch-off and remove. Faces seen on any camera are recognised and learned the same way.
 
 | Address | What it is |
 |---|---|
@@ -48,21 +63,22 @@ Add IP cameras in **Settings › Network Cameras** by address. They appear in a 
 | `http://192.168.1.21/video.mjpg` | Motion-JPEG stream over HTTP |
 | `http://192.168.1.22/snapshot.jpg` | Still-picture address, fetched about twice a second |
 
-If the camera needs signing in, put the user name and password in the address. **Test Connection** in the editor tries the address and reports the picture size or what went wrong.
+The make presets are the usual addresses for those brands; some models differ.
 
-Network cameras do not have to be analysed fully live. This Mac's camera always has priority and is analysed at its full frame rate. Network cameras are analysed in the gaps: often when the Mac is keeping up, less often as load rises, and never less often than the limit in **Settings › General** (1 second by default). Their video keeps playing at full speed either way, and each tile shows its video rate and how many frames per second are being analysed.
+Network cameras do not have to be analysed fully live. When this Mac's camera is also being watched it has priority and is analysed at its full frame rate. Network cameras are analysed in the gaps: often when the Mac is keeping up, less often as load rises, and never less often than the limit in **Settings › General** (1 second by default). Their video keeps playing at full speed either way, and each tile shows its video rate and how many frames per second are being analysed.
 
 RTSP is read over TCP only, so cameras that offer video only over UDP will not connect. Using a camera's lower-resolution stream keeps decoding cheap.
 
 ## Security mode
 
-Turn on **Security Mode** (the shield in the toolbar, or Settings › Security) to use FaceRec as a camera monitor. This Mac's own camera is switched off, no camera permission is needed, and the network cameras get the Mac's full attention.
+Choose **Security** at the top of the window to use FaceRec as a camera monitor. This Mac's own camera is switched off (no camera permission is needed) and the network cameras get the Mac's full attention.
 
-- **Events.** Everyone who appears on a network camera is logged in the side panel's Events tab (`E`) with the time, the camera, a face picture and a snapshot of the scene. Click an event to see the snapshot. The same person on the same camera is logged at most once every 2 minutes (unknown people: every 30 seconds), and the log keeps the most recent 300 events.
+- **History.** Everyone who appears on a network camera is logged in the History tab (`H`) with the time, the camera, a face picture and a snapshot of the scene. Click an entry to see the snapshot. The same person on the same camera is logged at most once every 2 minutes (unknown people: every 30 seconds).
 - **Alerts.** Settings › Security can send a macOS notification when an unknown person appears, and optionally for people you have named.
 - **Stay awake.** The Mac is kept from sleeping while network cameras are being watched (can be turned off).
+- **This Mac's camera too.** Settings › Security can add this Mac's own camera to the grid.
 
-Events are logged for network cameras in normal mode too. Closing the window quits the app and stops watching. Check the rules on camera recording and face recognition where you live, and tell people they are on camera.
+Closing the window quits the app and stops watching. Check the rules on camera recording and face recognition where you live, and tell people they are on camera.
 
 ## Continuous learning
 
@@ -76,7 +92,7 @@ After a person is named once, the app keeps learning them:
 
 ## Privacy
 
-Video never leaves the Mac. Everything is stored only in `~/Library/Application Support/FaceRec/`: `faces.json` holds the face embeddings, `avatars/` one small picture per person, and `cameras.json` the network camera addresses (including any passwords in them; the file is readable only by your user account), and `events/` the security log with its pictures. Delete that folder to erase everything the app has learned.
+Video never leaves the Mac. Everything is stored only in `~/Library/Application Support/FaceRec/`: `faces.json` holds the face embeddings, `avatars/` one small picture per person, and `cameras.json` the network camera addresses (including any passwords in them; the file is readable only by your user account), and `events/` the face history with its pictures and, for unknown faces, the captured views. Delete that folder to erase everything the app has learned.
 
 ## How it works
 
