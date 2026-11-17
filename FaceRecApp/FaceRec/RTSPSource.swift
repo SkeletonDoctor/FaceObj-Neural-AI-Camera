@@ -35,7 +35,9 @@ final class RTSPSource: StreamSource, @unchecked Sendable {
     private var pictureTime: UInt32 = 0
     private var fragment: Data?
     private var live = false
-    private var lastData = Date()
+    /// When video last arrived (or the connection was opened). Replies to
+    /// keepalives do not count: a server can answer those and still send no video.
+    private var lastVideo = Date()
     private var retryDelay = 2.0
     private var timer: DispatchSourceTimer?
     private var keepAliveEvery = 25.0
@@ -88,7 +90,7 @@ final class RTSPSource: StreamSource, @unchecked Sendable {
         generation += 1
         let mine = generation
         onStatus?(.connecting)
-        lastData = Date()
+        lastVideo = Date()
 
         let connection = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port) ?? 554,
                                       using: secure ? .tls : .tcp)
@@ -115,8 +117,8 @@ final class RTSPSource: StreamSource, @unchecked Sendable {
             guard let self, self.generation == mine else { return }
             // Some servers send nothing until the stream's next keyframe, which can be
             // many seconds away, so starting up is given longer than a stall.
-            if Date().timeIntervalSince(self.lastData) > (self.live ? 10 : 30) {
-                self.fail(self.live ? "The camera stopped sending video." : "The camera did not answer.")
+            if Date().timeIntervalSince(self.lastVideo) > (self.live ? 10 : 30) {
+                self.fail(self.live ? "The camera stopped sending video." : "The camera connected but sent no video.")
             } else if self.sessionID != nil, Date().timeIntervalSince(self.lastKeepAlive) > self.keepAliveEvery {
                 self.lastKeepAlive = Date()
                 self.send("OPTIONS", self.address) { _ in }
@@ -326,7 +328,6 @@ final class RTSPSource: StreamSource, @unchecked Sendable {
             guard let self, self.generation == mine else { return }
             if let data, !data.isEmpty {
                 if !self.live { self.log("received \(data.count) bytes") }
-                self.lastData = Date()
                 self.inbox.append(data)
                 self.drainInbox()
             }
@@ -348,6 +349,7 @@ final class RTSPSource: StreamSource, @unchecked Sendable {
                 let length = Int(inbox[offset + 2]) << 8 | Int(inbox[offset + 3])
                 guard end - offset >= 4 + length else { break }
                 if inbox[offset + 1] == videoChannel {
+                    lastVideo = Date()
                     handle(packet: inbox.subdata(in: (offset + 4)..<(offset + 4 + length)))
                 }
                 offset += 4 + length
