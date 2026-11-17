@@ -37,8 +37,6 @@ enum ReleaseFeed {
     /// copies installed before the rename still find their update.
     static let appArchive = "FaceRec.zip"
 
-    static var releasesPage: URL { URL(string: "https://github.com/\(repository)/releases")! }
-
     /// `FACEREC_UPDATE_FEED` points the app at another release description for
     /// testing. Signatures are still checked, so it cannot install unsigned files.
     private static var feedURL: URL {
