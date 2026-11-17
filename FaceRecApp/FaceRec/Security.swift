@@ -28,8 +28,10 @@ struct SecurityEvent: Codable, Identifiable, Equatable {
     var name: String?          // nil = unknown person
     var face: String?          // file names inside the events folder
     var scene: String?
-    var samples: String?       // the face's views, kept for unknown people so they can be named later
+    var samples: String?       // the face's views, kept until the entry is named or confirmed
     var added: Bool?           // true once the user added this person to People from the history
+    var confidence: Float?     // how sure the match was, for recognised people
+    var confirmed: Bool?       // true once the user confirmed the match (or corrected it)
 }
 
 /// Face views packed as raw numbers: count, then per view quality, yaw, pitch and the embedding.
@@ -79,6 +81,7 @@ final class EventLog: ObservableObject {
     /// Saves the pictures and adds the event. Returns it once stored.
     func record(_ report: SightingReport, camera: String) async -> SecurityEvent {
         var event = SecurityEvent(date: report.date, camera: camera, name: report.sighting.name)
+        if report.sighting.name != nil { event.confidence = report.sighting.confidence }
         let id = event.id.uuidString
         let files: (face: String?, scene: String?, samples: String?) = await Task.detached(priority: .utility) {
             try? FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
@@ -96,7 +99,7 @@ final class EventLog: ObservableObject {
                 return name
             }
             var samples: String?
-            if report.sighting.name == nil, !report.sighting.samples.isEmpty,
+            if !report.sighting.samples.isEmpty,
                (try? SampleFile.encode(report.sighting.samples)
                     .write(to: Self.directory.appendingPathComponent("\(id)-samples.bin"), options: .atomic)) != nil {
                 samples = "\(id)-samples.bin"
@@ -128,21 +131,48 @@ final class EventLog: ObservableObject {
         return SampleFile.decode(data)
     }
 
-    /// Marks history entries as a named person: the one the user picked, and any
-    /// other unknown entries that `matches` says are the same person.
+    /// Marks history entries as a named person: the one the user picked (an
+    /// unknown face, or a match being corrected), and any other unknown entries
+    /// that `matches` says are the same person.
     func name(_ id: SecurityEvent.ID, as name: String, matches: ([FaceSample]) -> Bool) -> Int {
         var renamed = 0
-        for i in events.indices where events[i].name == nil {
+        for i in events.indices {
             let picked = events[i].id == id
-            guard picked || matches(samples(events[i])) else { continue }
+            guard picked || (events[i].name == nil && matches(samples(events[i]))) else { continue }
+            if picked {
+                if events[i].name == nil { events[i].added = true }
+                events[i].confirmed = true
+                events[i].confidence = nil
+            }
             events[i].name = name
-            if picked { events[i].added = true }
-            if let url = url(events[i].samples) { try? FileManager.default.removeItem(at: url) }
-            events[i].samples = nil
+            discardSamples(i)
             renamed += 1
         }
         save()
         return renamed
+    }
+
+    /// The user agreed with a match; its views have been learned.
+    func confirm(_ id: SecurityEvent.ID) {
+        guard let i = events.firstIndex(where: { $0.id == id }) else { return }
+        events[i].confirmed = true
+        discardSamples(i)
+        save()
+    }
+
+    /// The user said a match was wrong and the person is nobody they know.
+    /// The views are kept, so the face can still be named later.
+    func markUnknown(_ id: SecurityEvent.ID) {
+        guard let i = events.firstIndex(where: { $0.id == id }) else { return }
+        events[i].name = nil
+        events[i].confidence = nil
+        events[i].confirmed = nil
+        save()
+    }
+
+    private func discardSamples(_ i: Int) {
+        if let url = url(events[i].samples) { try? FileManager.default.removeItem(at: url) }
+        events[i].samples = nil
     }
 
     func clear() {
@@ -196,4 +226,11 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     /// Show alerts even while FaceRec is the app in front.
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async
         -> UNNotificationPresentationOptions { [.banner, .sound, .list] }
+}
+
+extension SecurityEvent {
+    /// An unknown face that can still be named.
+    var canAdd: Bool { name == nil && samples != nil }
+    /// A recognised face whose match the user has not checked yet.
+    var canConfirm: Bool { name != nil && confirmed != true && samples != nil }
 }

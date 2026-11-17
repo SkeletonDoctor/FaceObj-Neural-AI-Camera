@@ -182,6 +182,22 @@ final class FaceStore: @unchecked Sendable {
             return .added
         }
 
+        /// Removes stored views that closely resemble any of `wrong`. One view is always kept.
+        func unlearn(_ wrong: [[Float]], above similarity: Float) -> Int {
+            var doomed = embeddings.indices.filter { i in wrong.contains { dot($0, embeddings[i]) > similarity } }
+            if doomed.count == embeddings.count, let best = doomed.max(by: { qualities[$0] < qualities[$1] }) {
+                doomed.removeAll { $0 == best }
+            }
+            for i in doomed.sorted(by: >) {
+                embeddings.remove(at: i)
+                qualities.remove(at: i)
+                timestamps.remove(at: i)
+                poses.remove(at: i)
+            }
+            if !doomed.isEmpty { cache = nil }
+            return doomed.count
+        }
+
         /// Of the two most alike samples, drops the lower-quality one, keeping the bin varied.
         private func dropMostRedundant(in indices: [Int]) {
             var worst: (a: Int, b: Int, similarity: Float)?
@@ -250,6 +266,16 @@ final class FaceStore: @unchecked Sendable {
                 if addSample(name: name, sample: sample).learned { learned += 1 }
             }
             return learned
+        }
+    }
+
+    /// A match was wrong: forget the views of `name` that look like these samples,
+    /// so the same mistake is less likely. Returns how many views were removed.
+    @discardableResult
+    func unlearn(name: String, samples: [FaceSample]) -> Int {
+        locked {
+            guard let person = people[name] else { return 0 }
+            return person.unlearn(samples.map { normalised($0.embedding) }, above: 0.90)
         }
     }
 

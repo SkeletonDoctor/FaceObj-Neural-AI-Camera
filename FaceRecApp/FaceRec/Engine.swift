@@ -29,12 +29,16 @@ final class FrameBox: @unchecked Sendable {
 
 /// One camera's place in the pipeline: its newest frame, its tracker and its statistics.
 final class Feed: @unchecked Sendable {
-    static let localID = "local"
+    /// The camera used by the Add Person sheet.
+    static let enrolID = "enrol"
 
     let id: String
-    /// The Mac's own camera is analysed as fast as it delivers frames. Network
-    /// cameras are analysed with whatever capacity is left over.
+    /// A live feed (the Add Person camera) is analysed as fast as it delivers
+    /// frames. Security cameras share whatever capacity is left over.
     let isLive: Bool
+    /// Whether people appearing on this feed go into the history and alerts,
+    /// and whether objects are looked for on it. Off for the Add Person camera.
+    let reportsSightings: Bool
     let frames = FrameBox()
 
     /// Called on the main queue with what to draw for this feed's newest frame.
@@ -57,9 +61,10 @@ final class Feed: @unchecked Sendable {
     fileprivate var lastFaces: CFAbsoluteTime = 0
     fileprivate var lastObjects: CFAbsoluteTime = 0
 
-    fileprivate init(id: String, isLive: Bool) {
+    fileprivate init(id: String, isLive: Bool, reportsSightings: Bool) {
         self.id = id
         self.isLive = isLive
+        self.reportsSightings = reportsSightings
     }
 }
 
@@ -69,11 +74,10 @@ final class Feed: @unchecked Sendable {
 /// run on one queue shared by all cameras and always take a camera's newest
 /// frame; frames that arrive while it is busy are skipped, never queued.
 ///
-/// The Mac's own camera has priority, so it stays live. Network cameras are
-/// analysed in the gaps: when the Mac is keeping up they are analysed often,
-/// and as load rises they are analysed less often rather than slowing the
-/// live camera, but never less than once every `networkCameraPatience` seconds.
-/// Their video still plays at full rate either way.
+/// Security cameras take turns: when the Mac is keeping up each is analysed
+/// often, and as load rises each is analysed less often, but never less than
+/// once every `networkCameraPatience` seconds. Their video still plays at full
+/// rate either way. The Add Person camera has priority while it is open.
 ///
 /// Learning never stops: confident matches refresh a person's samples, a tracked
 /// face that turns to an unfamiliar angle is learned through the tracker, and an
@@ -83,9 +87,6 @@ final class Engine: @unchecked Sendable {
 
     let store: FaceStore
     let avatars: AvatarStore
-    let camera = Camera()
-    /// The Mac's own camera.
-    let local = Feed(id: Feed.localID, isLive: true)
 
     private let analyzer: FaceAnalyzer
     private let objectDetector: ObjectDetector
@@ -100,6 +101,8 @@ final class Engine: @unchecked Sendable {
     private var faceWorkerBusy = false
     private var objectWorkerBusy = false
     private var objectsOn = false
+    private var facesOn = true
+    private var learningOn = true
     private var learnedCount = 0
     private var lastSave = Date()
     private var patience: TimeInterval = 1
@@ -107,8 +110,7 @@ final class Engine: @unchecked Sendable {
     private var hiddenObjects: Set<String> = []
     private var objectConfidence = ObjectDetector.defaultConfidence
 
-    /// Called (on the face queue) when someone appears: anyone on a network
-    /// camera, and unknown faces on the Mac's own camera.
+    /// Called (on the face queue) when someone appears on a camera.
     var onSighting: (@Sendable (SightingReport) -> Void)?
     /// The same person on the same camera is not reported again within this long.
     static let knownCooldown: TimeInterval = 120
@@ -119,11 +121,6 @@ final class Engine: @unchecked Sendable {
         avatars = AvatarStore(directory: store.url.deletingLastPathComponent().appendingPathComponent("avatars"))
         analyzer = try FaceAnalyzer()
         objectDetector = try ObjectDetector()
-        feeds = [local]
-        camera.onFrame = { [weak self] frame in
-            guard let self else { return }
-            self.ingest(frame, from: self.local)
-        }
     }
 
     var objectsEnabled: Bool {
@@ -136,6 +133,27 @@ final class Engine: @unchecked Sendable {
             }
             if !newValue { all.forEach { feed in feed.lock.withLock { feed.objectTracker.reset() } } }
         }
+    }
+
+    /// Whether the security cameras look for faces at all. The Add Person camera always does.
+    var facesEnabled: Bool {
+        get { schedule.withLock { facesOn } }
+        set {
+            let all: [Feed] = schedule.withLock {
+                facesOn = newValue
+                if !newValue { feeds.filter(\.reportsSightings).forEach { $0.pendingFaces = nil } }
+                return feeds
+            }
+            if !newValue {
+                all.filter(\.reportsSightings).forEach { feed in feed.lock.withLock { feed.tracker.reset() } }
+            }
+        }
+    }
+
+    /// Whether new views of known people are stored while watching.
+    var learningEnabled: Bool {
+        get { schedule.withLock { learningOn } }
+        set { schedule.withLock { learningOn = newValue } }
     }
 
     /// Which kinds of object to leave out, and how sure the detector must be to show one.
@@ -154,9 +172,9 @@ final class Engine: @unchecked Sendable {
 
     // MARK: Feeds
 
-    /// Adds a network camera. Hand its frames to `ingest(_:from:)`.
-    func addFeed(id: String) -> Feed {
-        let feed = Feed(id: id, isLive: false)
+    /// Adds a camera. Hand its frames to `ingest(_:from:)`.
+    func addFeed(id: String, live: Bool = false, reportsSightings: Bool = true) -> Feed {
+        let feed = Feed(id: id, isLive: live, reportsSightings: reportsSightings)
         schedule.withLock { feeds.append(feed) }
         return feed
     }
@@ -208,8 +226,8 @@ final class Engine: @unchecked Sendable {
         let (active, objectsOn, learned): (Bool, Bool, Int) = schedule.withLock {
             guard feeds.contains(where: { $0 === feed }) else { return (false, false, 0) }
             hidden = hiddenObjects
-            feed.pendingFaces = frame
-            if self.objectsOn { feed.pendingObjects = frame }
+            if facesOn || !feed.reportsSightings { feed.pendingFaces = frame }
+            if self.objectsOn, feed.reportsSightings { feed.pendingObjects = frame }
             if Date().timeIntervalSince(lastSave) > Self.autoSaveInterval {
                 lastSave = Date()
                 saveNow = true
@@ -222,6 +240,7 @@ final class Engine: @unchecked Sendable {
         if objectsOn { kick(.objects) }
         if saveNow { faceQueue.async { [store] in try? store.save() } }
 
+        var labelsInView: Set<String> = []
         var state: OverlayState = feed.lock.withLock {
             feed.frameCount += 1
             let now = CFAbsoluteTimeGetCurrent()
@@ -237,9 +256,11 @@ final class Engine: @unchecked Sendable {
                             sampleCount: $0.sampleCount, autoLearned: $0.autoLearned)
             }
             var objects: [ObjectDetection] = []
-            if objectsOn {
+            if objectsOn, feed.reportsSightings {
                 feed.objectTracker.predict()
-                objects = feed.objectTracker.visible(hidden: hidden)
+                let all = feed.objectTracker.visible()
+                labelsInView = Set(all.map(\.label))       // recording triggers ignore the display filter
+                objects = all.filter { !hidden.contains($0.label) }
             }
             return OverlayState(
                 frameSize: CGSize(width: CVPixelBufferGetWidth(frame), height: CVPixelBufferGetHeight(frame)),
@@ -250,7 +271,7 @@ final class Engine: @unchecked Sendable {
         let callback = feed.onOverlay
         let published = state
         // The recorder gets the same frame and the same overlays the window shows.
-        feed.lock.withLock { feed.recorder }?.append(frame, state: published)
+        feed.lock.withLock { feed.recorder }?.append(frame, state: published, labels: labelsInView)
         DispatchQueue.main.async { callback?(published) }
     }
 
@@ -309,20 +330,22 @@ final class Engine: @unchecked Sendable {
     }
 
     private func analyseFaces(_ frame: CVPixelBuffer, _ feed: Feed) {
+        let (on, learn) = schedule.withLock { (facesOn || !feed.reportsSightings, learningOn) }
+        guard on else { return }   // switched off while this frame was waiting
         let faces = try? analyzer.analyze(frame)
         let outcome: (learned: Int, names: [String?], sightings: [Sighting]) = feed.lock.withLock {
             feed.detectionCount += 1
             guard let faces else { return (0, [], []) }
-            return feed.tracker.update(faces, store: store)
+            return feed.tracker.update(faces, store: store, learn: learn)
         }
         if outcome.learned > 0 { schedule.withLock { learnedCount += outcome.learned } }
-        if let onSighting {
+        if let onSighting, feed.reportsSightings {
             let now = Date()
             // Decide per person, once for this frame, so two strangers who walk in
             // together are both logged while a lingering one is not logged repeatedly.
             let fresh: Set<String> = schedule.withLock {
                 var keys = Set<String>()
-                for sighting in outcome.sightings where !feed.isLive || sighting.name == nil {
+                for sighting in outcome.sightings {
                     let key = feed.id + "|" + (sighting.name ?? "")
                     let cooldown = sighting.name == nil ? Self.unknownCooldown : Self.knownCooldown
                     if let last = lastSighting[key], now.timeIntervalSince(last) < cooldown { continue }

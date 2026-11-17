@@ -8,6 +8,14 @@ struct RecordingSettings: Equatable, Sendable {
     enum Mode: String, CaseIterable, Sendable {
         case always = "Continuously"
         case activity = "Only while a person or object is in view"
+        case triggers = "Only while chosen things are in view"
+    }
+    /// Which faces start a recording in the `triggers` mode.
+    enum FaceTrigger: String, CaseIterable, Sendable {
+        case none = "No"
+        case any = "Any face"
+        case unknown = "Unknown faces only"
+        case known = "People I have named"
     }
     enum Quality: String, CaseIterable, Sendable {
         case standard = "Standard"
@@ -22,6 +30,11 @@ struct RecordingSettings: Equatable, Sendable {
     var drawOverlays = true             // face and object boxes in the recorded picture
     var drawTimestamp = true            // camera name, date and time in the corner
     var startOnLaunch = false
+    /// `triggers` mode: the kinds of object, and the faces, that start a recording.
+    var triggerObjects: Set<String> = ["person"]
+    var triggerFaces = FaceTrigger.none
+    /// How long to keep recording after the last trigger left the view.
+    var tailSeconds = 5.0
 
     static var defaultFolder: URL {
         FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask)[0].appendingPathComponent("FaceRec", isDirectory: true)
@@ -38,6 +51,9 @@ struct RecordingSettings: Equatable, Sendable {
         s.drawOverlays = d.object(forKey: "recordOverlays") as? Bool ?? true
         s.drawTimestamp = d.object(forKey: "recordTimestamp") as? Bool ?? true
         s.startOnLaunch = d.bool(forKey: "recordOnLaunch")
+        if let objects = d.stringArray(forKey: "recordTriggerObjects") { s.triggerObjects = Set(objects) }
+        if let faces = d.string(forKey: "recordTriggerFaces").flatMap(FaceTrigger.init(rawValue:)) { s.triggerFaces = faces }
+        if let tail = d.object(forKey: "recordTail") as? Double, tail >= 1 { s.tailSeconds = tail }
         return s
     }
 
@@ -51,6 +67,28 @@ struct RecordingSettings: Equatable, Sendable {
         d.set(drawOverlays, forKey: "recordOverlays")
         d.set(drawTimestamp, forKey: "recordTimestamp")
         d.set(startOnLaunch, forKey: "recordOnLaunch")
+        d.set(triggerObjects.sorted(), forKey: "recordTriggerObjects")
+        d.set(triggerFaces.rawValue, forKey: "recordTriggerFaces")
+        d.set(tailSeconds, forKey: "recordTail")
+    }
+
+    /// Whether what is in view right now should be recorded. `labels` are the
+    /// kinds of object the tracker sees, including any the user has hidden from the screen.
+    func wantsRecording(faces: [FaceOverlay], labels: Set<String>) -> Bool {
+        switch mode {
+        case .always:
+            return true
+        case .activity:
+            return !faces.isEmpty || !labels.isEmpty
+        case .triggers:
+            if !triggerObjects.isDisjoint(with: labels) { return true }
+            switch triggerFaces {
+            case .none: return false
+            case .any: return !faces.isEmpty
+            case .unknown: return faces.contains { $0.name == nil }
+            case .known: return faces.contains { $0.name != nil }
+            }
+        }
     }
 }
 
@@ -111,7 +149,6 @@ enum RecordingLibrary {
 /// up to its last few seconds.
 final class FeedRecorder: @unchecked Sendable {
     static let segmentLength: TimeInterval = 600
-    static let activityTail: TimeInterval = 5      // keep recording this long after the view empties
     static let maxWidth = 1920
 
     private let camera: String
@@ -147,7 +184,7 @@ final class FeedRecorder: @unchecked Sendable {
 
     /// Offers one frame with what is on screen for it. Frames beyond the recording
     /// frame rate, or arriving faster than the encoder can take them, are skipped.
-    func append(_ frame: CVPixelBuffer, state: OverlayState, at date: Date = Date()) {
+    func append(_ frame: CVPixelBuffer, state: OverlayState, labels: Set<String>, at date: Date = Date()) {
         let take: Bool = lock.withLock {
             guard waiting < 3, date.timeIntervalSince(lastAccepted) >= 1.0 / Double(settings.framesPerSecond) - 0.004 else { return false }
             lastAccepted = date
@@ -159,7 +196,7 @@ final class FeedRecorder: @unchecked Sendable {
         queue.async { [self] in
             defer { lock.withLock { waiting -= 1 } }
             guard !stopped else { return }
-            write(buffer.buffer, state, date)
+            write(buffer.buffer, state, labels, date)
         }
     }
 
@@ -173,11 +210,11 @@ final class FeedRecorder: @unchecked Sendable {
 
     // MARK: Writing
 
-    private func write(_ frame: CVPixelBuffer, _ state: OverlayState, _ date: Date) {
-        if settings.mode == .activity {
-            if !state.faces.isEmpty || !state.objects.isEmpty { lastActivity = date }
-            guard date.timeIntervalSince(lastActivity) <= Self.activityTail else {
-                if writer != nil { finishSegment(nil) }      // the view emptied: close this clip
+    private func write(_ frame: CVPixelBuffer, _ state: OverlayState, _ labels: Set<String>, _ date: Date) {
+        if settings.mode != .always {
+            if settings.wantsRecording(faces: state.faces, labels: labels) { lastActivity = date }
+            guard date.timeIntervalSince(lastActivity) <= settings.tailSeconds else {
+                if writer != nil { finishSegment(nil) }      // nothing of interest any more: close this clip
                 return
             }
         }

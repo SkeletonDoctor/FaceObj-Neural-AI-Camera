@@ -129,3 +129,29 @@ func aspectFit(_ content: CGSize, in bounds: CGSize) -> CGRect {
     return CGRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2,
                   width: size.width, height: size.height)
 }
+
+/// Shows a camera's frames by handing each one straight to a layer. Used for
+/// the small preview in the Add Person sheet, where a Metal view is not needed.
+struct LayerVideoView: NSViewRepresentable {
+    let frames: FrameBox
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.black.cgColor
+        view.layer?.contentsGravity = .resizeAspect
+        frames.onNewFrame { [weak view, frames] in
+            DispatchQueue.main.async {
+                guard let frame = frames.get(), let surface = CVPixelBufferGetIOSurface(frame)?.takeUnretainedValue() else { return }
+                view?.layer?.contents = surface
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    static func dismantleNSView(_ view: NSView, coordinator: ()) {
+        view.layer?.contents = nil
+    }
+}

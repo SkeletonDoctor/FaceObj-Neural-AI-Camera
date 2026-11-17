@@ -2,11 +2,11 @@
 
 # FaceRec
 
-Real-time face recognition for Apple Silicon Macs. Name a face once and the app keeps learning that person from every new angle. Everything runs on-device: video is drawn with Metal and both neural networks run on the Apple Neural Engine through Core ML.
+A neural security system for the cameras you already have, on Apple Silicon Macs. FaceRec watches network cameras and cameras on your Mac side by side, recognises the people you have taught it, logs and records what happens, and alerts you about everyone else. Everything runs on-device: video is drawn with Metal and both neural networks run on the Apple Neural Engine through Core ML.
 
-![FaceRec in Security mode watching three public street cameras, with tracked objects](docs/images/camera-grid.jpg)
+![FaceRec watching three public street cameras, with tracked objects](docs/images/camera-grid.jpg)
 
-*Security mode watching three public street cameras at once (Nashville, Akron and Lake Tahoe), with object tracking on.*
+*Three public street cameras at once (Nashville, Akron and Lake Tahoe), with object tracking on.*
 
 ## Download
 
@@ -26,37 +26,50 @@ Because the app is not notarised, macOS asks for camera access again after each 
 
 ## Using it
 
-The switch at the top of the window picks the mode, and FaceRec asks which you want the first time it opens.
+Two things get you started, and the app offers both the first time it opens:
 
-| Mode | What it does |
-|---|---|
-| **This Mac** | Recognises people in front of this Mac's camera. Network cameras are not connected. |
-| **Security** | Watches your network cameras in a grid, logs who appears and can alert you. This Mac's camera is off unless you turn it on in Settings › Security. |
+1. **Add Person** teaches FaceRec a face. Sit in front of a camera on this Mac and slowly turn your head; views are captured automatically across angles. Every camera can then recognise that person.
+2. **Add Camera** adds a camera to watch: a network camera by its address, or a camera built into or plugged into this Mac.
 
-| Key | Toolbar | Action |
-|---|---|---|
-| `A` | Name Face | Name the largest face in view (shows its picture; pick an existing person to add to them) |
-| | Camera and quality menus | This Mac mode: choose the camera, its resolution and its frame rate |
-| | Add Camera | Security mode: add a network camera |
-| `R` | Record | Record every camera to video with the overlays, or stop |
-| `G` | Grid | With several cameras: show every camera, or only the selected one |
-| `O` | Objects | Turn object detection on or off; the button opens the object filter |
-| `L` | People and History | Known people, with their picture and learned angles |
-| `H` | People and History | The history of faces seen |
-| `S` | More › Save Database | Save the database now |
-| | More › Enrol from Photos | Add a person from image files |
-| | More › Identify a Photo | Recognise the faces in an image file |
-| `⌘,` | More › Settings | Network cameras, security and general settings |
+The toolbar has five controls, styled in Liquid Glass on macOS 26 and later. The same commands are in the File, Neural and View menus.
+
+| Toolbar | Item | Key | Action |
+|---|---|---|---|
+| **Add** | Add Camera… | `⌘N` | Add a network camera or a camera on this Mac |
+| | Add Person… | `P` or `⇧⌘N` | Teach FaceRec a face using a camera on this Mac |
+| | Name Face in View | `A` | Name the largest face a camera can see right now (shows its picture; pick an existing person to add to them) |
+| | Enrol from Photos… | | Add a person from image files |
+| **Record** | | `R` | Record every camera to video with the overlays, or stop |
+| **Neural** | (opens the Neural panel) | `N` or `⌘E` | Everything about the neural networks in one place |
+| | Recognise faces | `F` | Turn face recognition on or off for the security cameras |
+| | Learn new angles while watching | | Pause or resume learning; faces are still recognised while paused |
+| | Detect objects | `O` | Turn object detection on or off |
+| | Kinds shown | | Choose which objects to show and how sure the detector must be |
+| | Analyse each camera at least every… | | How often each camera gets a turn |
+| **View** | Camera Grid / Selected Camera | `G` | Show every camera, or only the selected one |
+| | People | `L` or `⌘1` | Known people, with their picture and learned angles |
+| | History | `H` or `⌘2` | The history of faces seen |
+| | Recordings | `⌘3` | Recorded video |
+| **More** | Identify a Photo… | | Recognise the faces in an image file |
+| | Save Database | `S` | Save the database now |
+| | Settings… | `⌘,` | Cameras, security, alerts, recording and general settings |
+
+Under the grid, a summary shows how many cameras are live, how many faces are in view and how many are unknown.
+
+The side panel has three lists: **People** (with a search box), **History** (grouped by day) and **Recordings**.
 
 On the video, a white bracket is an unknown face and a green one a recognised face (shading to orange for weaker matches). A spark next to a name means that frame was just learned.
 
 ### Face history
 
-Faces the app does not know are kept in the History tab with a picture, the camera and the time, so you can add someone to People after the fact: click **Add…**, type a name, and the person is enrolled from the views that were captured. Other history entries of the same person are named too. Network cameras log everyone who appears, known or not; this Mac's camera logs unknown faces only. The latest 300 entries are kept.
+Every camera logs everyone who appears, known or not, in the History tab with a picture, the camera and the time. The Add Person camera is not logged, and the latest 300 entries are kept.
+
+- **Unknown faces** can be added to People after the fact: click **Add…**, type a name, and the person is enrolled from the views that were captured. Other history entries of the same person are named too.
+- **Recognised faces** wait under **To Confirm** with how sure the match was. Press ✓ if the match is right and FaceRec learns the views from that sighting, so the person is recognised better from that camera and angle next time. Press ✗ if it is wrong: name the right person (they learn the views instead) or choose **Nobody I Know** (the entry goes back to unknown). Either way, the person who was wrongly matched forgets the views that caused the mistake.
 
 ### Object filter
 
-The Objects button opens a panel to turn detection on, set how sure the detector must be before a box is shown, and choose which of the 80 kinds of object to show. **Security** keeps people, vehicles, pets and bags only.
+The **Neural** panel lets you turn detection on, set how sure the detector must be before a box is shown, and choose which of the 80 kinds of object to show. **Security** keeps people, vehicles, pets and bags only.
 
 ### Object tracking
 
@@ -77,9 +90,13 @@ On two live street cameras over 40 seconds, boxes that vanished and came back wi
 
 *The object filter: turn detection on, set how sure it must be, and choose which kinds of object to show.*
 
-## Network cameras
+## Cameras
 
-In Security mode, add IP cameras with **Add Camera** (in the toolbar, or the dashed tile in the grid). Pick the camera's make, type its address, user name and password, and FaceRec builds the stream address for Hikvision, Dahua, Amcrest, Reolink, TP-Link Tapo, Axis and Foscam cameras; or paste a full address. **Test Connection** shows the camera's picture before you add it. Cameras appear in a grid: click a tile to select it, double-click to show it alone, and hover for edit, switch-off and remove. Faces seen on any camera are recognised and learned the same way.
+Add cameras with **Add Camera** (in the toolbar, or the dashed tile in the grid).
+
+**A camera on this Mac.** Choose "A camera on this Mac", pick the built-in, USB or Continuity camera, and optionally its resolution and frame rate. It joins the grid like any other camera. (To teach FaceRec a face, use Add Person instead.)
+
+**A network camera.** Pick the camera's make, type its address, user name and password, and FaceRec builds the stream address for Hikvision, Dahua, Amcrest, Reolink, TP-Link Tapo, Axis and Foscam cameras; or paste a full address. **Test Connection** shows the camera's picture before you add it. Cameras appear in a grid: click a tile to select it, double-click to show it alone, and hover for edit, switch-off and remove. Faces seen on any camera are recognised and learned the same way.
 
 | Address | What it is |
 |---|---|
@@ -90,7 +107,7 @@ In Security mode, add IP cameras with **Add Camera** (in the toolbar, or the das
 
 The make presets are the usual addresses for those brands; some models differ.
 
-Network cameras do not have to be analysed fully live. When this Mac's camera is also being watched it has priority and is analysed at its full frame rate. Network cameras are analysed in the gaps: often when the Mac is keeping up, less often as load rises, and never less often than the limit in **Settings › General** (1 second by default). Their video keeps playing at full speed either way, and each tile shows its video rate and how many frames per second are being analysed.
+Cameras do not have to be analysed fully live. They take turns: each is analysed often when the Mac is keeping up, less often as load rises, and never less often than the limit in **Settings › General** (1 second by default). Their video keeps playing at full speed either way, and each tile shows its video rate and how many frames per second are being analysed. The Add Person camera has priority while its sheet is open.
 
 ### Trying it without a camera of your own
 
@@ -108,14 +125,11 @@ Many webcam sites embed an HLS stream; the `.m3u8` address in the page's player 
 
 RTSP is read over TCP only, so cameras that offer video only over UDP will not connect. Using a camera's lower-resolution stream keeps decoding cheap.
 
-## Security mode
+## Security
 
-Choose **Security** at the top of the window to use FaceRec as a camera monitor. This Mac's own camera is switched off (no camera permission is needed) and the network cameras get the Mac's full attention.
-
-- **History.** Everyone who appears on a network camera is logged in the History tab (`H`) with the time, the camera, a face picture and a snapshot of the scene. Click an entry to see the snapshot. The same person on the same camera is logged at most once every 2 minutes (unknown people: every 30 seconds).
+- **History.** Everyone who appears on a camera is logged in the History tab (`H`) with the time, the camera, a face picture and a snapshot of the scene. Click an entry to see the snapshot. The same person on the same camera is logged at most once every 2 minutes (unknown people: every 30 seconds).
 - **Alerts.** Settings › Alerts can alert you when an unknown person appears, and optionally for people you have named: as a macOS notification, on your phone, or to your own automation (see below).
-- **Stay awake.** The Mac is kept from sleeping while network cameras are being watched (can be turned off).
-- **This Mac's camera too.** Settings › Security can add this Mac's own camera to the grid.
+- **Stay awake.** The Mac is kept from sleeping while cameras are being watched (can be turned off).
 
 Closing the window quits the app and stops watching. Check the rules on camera recording and face recognition where you live, and tell people they are on camera.
 
@@ -126,10 +140,10 @@ Closing the window quits the app and stops watching. Check the rules on camera r
 - **Overlays in the picture.** The face brackets and names, the object boxes, and the camera name, date and time are drawn into the video, so a recording shows what the app saw. Both can be turned off.
 - **Files.** One folder per camera and day, one file per 10 minutes, in `~/Movies/FaceRec` unless you choose another folder. HEVC video up to 1080p, written so that a crash or power cut loses only the last few seconds.
 - **Storage.** About 1.4 GB per camera per hour at the standard quality and 15 frames per second. When the limit you set is reached (20 GB by default), the oldest recordings are deleted.
-- **Only when something happens.** Settings › Recording can record only while a person or object is in view, plus 5 seconds after.
+- **Only when something happens.** Settings › Recording can record only while a person or object is in view, or only while things you choose are in view: particular kinds of object (a car, a dog, a person), any face, unknown faces only, or people you have named. Recording carries on for a few seconds afterwards (5 by default).
 - **Playback.** The side panel's Recordings tab lists the files; double-click plays one.
 
-Object boxes are only recorded while object detection is on. Check the rules on recording where you live.
+Object boxes are only recorded, and objects can only start a recording, while object detection is on. Check the rules on recording where you live.
 
 ## Alerts on your phone
 
@@ -156,13 +170,13 @@ After a person is named once, the app keeps learning them:
 
 ## Privacy
 
-Video never leaves the Mac. The one exception is opt-in: if you turn on ntfy, Telegram or a webhook in Settings › Alerts, each alert (and its snapshot, unless you turn pictures off) is sent through that service. Everything is stored only in `~/Library/Application Support/FaceRec/`: `faces.json` holds the face embeddings, `avatars/` one small picture per person, and `cameras.json` the network camera addresses (including any passwords in them; the file is readable only by your user account), and `events/` the face history with its pictures and, for unknown faces, the captured views. Recordings, if you make any, go to `~/Movies/FaceRec` or the folder you choose. Delete that folder to erase everything the app has learned.
+Video never leaves the Mac. The one exception is opt-in: if you turn on ntfy, Telegram or a webhook in Settings › Alerts, each alert (and its snapshot, unless you turn pictures off) is sent through that service. Everything is stored only in `~/Library/Application Support/FaceRec/`: `faces.json` holds the face embeddings, `avatars/` one small picture per person, and `cameras.json` the network camera addresses (including any passwords in them; the file is readable only by your user account), and `events/` the face history with its pictures and the captured views of faces that have not been named or confirmed yet. Recordings, if you make any, go to `~/Movies/FaceRec` or the folder you choose. Delete that folder to erase everything the app has learned.
 
 ## How it works
 
 | Stage | How it runs |
 |---|---|
-| Camera | AVFoundation, mirrored, at the resolution and frame rate you pick |
+| Cameras on this Mac | AVFoundation, at the resolution and frame rate you pick |
 | Network cameras | Native RTSP client with VideoToolbox hardware decoding; HLS through AVPlayer; Motion-JPEG and stills over HTTP |
 | Video display | Metal, each frame drawn as it arrives, camera buffers wrapped as textures without copying |
 | Face detection + landmarks | Vision |
@@ -226,7 +240,7 @@ The built binary is at `build/Build/Products/Release/FaceRec.app/Contents/MacOS/
 | `FaceRec --benchmark pairs.tsv` | Measures accuracy on labelled pairs, one per line: `imageA<TAB>imageB<TAB>1` (same person) or `0` |
 | `FaceRec --render <dir> photo.jpg` | Draws the interface over a photo into `video.png` and `people.png` |
 | `FaceRec --stream-test <address> [seconds]` | Connects to a network camera, then reports frames received, picture size and faces found. Set `FACEREC_RTSP_DEBUG=1` to print the RTSP conversation |
-| `FaceRec --record-test <address> <seconds> <folder>` | Records a network camera with object detection on, reads the file back and saves one of its frames |
+| `FaceRec --record-test <address> <seconds> <folder> [kinds]` | Records a camera with object detection on, reads the file back and saves one of its frames. With kinds (for example `car,truck`) it records only while one of them is in view |
 | `FaceRec --object-test [address] [seconds]` | Runs the object tracker's simulated cases and, given a camera, counts box flicker with and without tracking |
 | `FaceRec --alert-test [picture.jpg]` | Sends a sample alert through every outside service switched on in Settings › Alerts and prints each result |
 | `FaceRec --update-test` | Runs one update check, download and install without the window. `FACEREC_UPDATE_FEED` can point it at a test release description; signatures are still checked |

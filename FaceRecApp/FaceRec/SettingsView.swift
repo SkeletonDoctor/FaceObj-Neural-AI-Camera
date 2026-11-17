@@ -4,13 +4,14 @@ import SwiftUI
 struct SettingsView: View {
     var body: some View {
         TabView {
-            CameraSettings().tabItem { Label("Network Cameras", systemImage: "video") }
+            CameraSettings().tabItem { Label("Cameras", systemImage: "video") }
             SecuritySettings().tabItem { Label("Security", systemImage: "shield.lefthalf.filled") }
             AlertSettingsView().tabItem { Label("Alerts", systemImage: "bell.badge") }
             RecordingSettingsView().tabItem { Label("Recording", systemImage: "record.circle") }
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
         }
         .frame(width: 660, height: 560)
+        .actionButton()   // every button in Settings is a glass capsule
     }
 }
 
@@ -21,14 +22,13 @@ private struct CameraSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(model.securityMode ? "These cameras are watched in Security mode."
-                 : "These cameras are watched in Security mode. FaceRec is in This Mac mode now, so they are not connected.")
+            Text("The cameras FaceRec watches: network cameras, and cameras on this Mac.")
                 .font(.callout).foregroundStyle(.secondary)
 
             List(selection: $selection) {
                 ForEach(model.networkCameras) { camera in
                     HStack(spacing: 10) {
-                        StatusDot(feed: model.feeds.first { $0.id == camera.id.uuidString }, enabled: camera.enabled && model.securityMode)
+                        StatusDot(feed: model.feeds.first { $0.id == camera.id.uuidString }, enabled: camera.enabled)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(camera.name).font(.body.weight(.medium))
                             Text(StreamSources.masked(camera.address)).font(.caption).foregroundStyle(.secondary)
@@ -49,8 +49,8 @@ private struct CameraSettings: View {
             .listStyle(.bordered)
             .overlay {
                 if model.networkCameras.isEmpty {
-                    ContentUnavailableView("No network cameras", systemImage: "video.badge.plus",
-                                           description: Text("Add a camera by its RTSP or HTTP address."))
+                    ContentUnavailableView("No cameras", systemImage: "video.badge.plus",
+                                           description: Text("Add a network camera by its address, or a camera on this Mac."))
                 }
             }
 
@@ -119,24 +119,12 @@ private struct SecuritySettings: View {
 
     var body: some View {
         Form {
-            Section("Mode") {
-                Picker("Use FaceRec for", selection: Binding(get: { model.securityMode }, set: { model.setMode(security: $0) })) {
-                    Label("This Mac", systemImage: "laptopcomputer").tag(false)
-                    Label("Security", systemImage: "shield.lefthalf.filled").tag(true)
-                }
-                .pickerStyle(.segmented)
-                Text(model.securityMode
-                     ? "Security: network cameras are watched in a grid, everyone who appears is logged, and alerts can be sent."
-                     : "This Mac: recognises people in front of this Mac's camera. Network cameras are not connected.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Toggle("Also watch this Mac's camera in Security mode", isOn: $model.includeMacCamera)
-            }
             Section("History") {
-                Text("Everyone who appears on a network camera is added to the History list with a picture. The same person on the same camera is logged at most once every 2 minutes (unknown people: every 30 seconds). Alerts are set up in the Alerts tab.")
+                Text("Everyone who appears on a camera is added to the History list with a picture. The same person on the same camera is logged at most once every 2 minutes (unknown people: every 30 seconds). Alerts are set up in the Alerts tab.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
-                Toggle("Keep this Mac awake while watching network cameras", isOn: $model.keepAwake)
+                Toggle("Keep this Mac awake while watching cameras", isOn: $model.keepAwake)
                 Text("Closing the FaceRec window quits the app and stops watching. Check the rules on camera recording and face recognition where you live, and tell people they are on camera.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -170,6 +158,25 @@ private struct RecordingSettingsView: View {
                 Picker("Record", selection: $model.recordingSettings.mode) {
                     ForEach(RecordingSettings.Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
+                if model.recordingSettings.mode == .triggers {
+                    TriggerPicker(chosen: $model.recordingSettings.triggerObjects)
+                    Picker("Also record for faces", selection: $model.recordingSettings.triggerFaces) {
+                        ForEach(RecordingSettings.FaceTrigger.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    if !model.recordingSettings.triggerObjects.isEmpty, !model.objectsEnabled {
+                        HStack {
+                            Label("Object detection is off, so objects cannot start a recording.", systemImage: "exclamationmark.triangle.fill")
+                                .font(.callout).foregroundStyle(.orange)
+                            Spacer()
+                            Button("Turn On") { model.toggleObjects() }
+                        }
+                    }
+                }
+                if model.recordingSettings.mode != .always {
+                    Picker("Keep recording afterwards for", selection: $model.recordingSettings.tailSeconds) {
+                        ForEach([5.0, 10, 30, 60], id: \.self) { Text("\(Int($0)) seconds").tag($0) }
+                    }
+                }
                 Picker("Frames per second", selection: $model.recordingSettings.framesPerSecond) {
                     ForEach([5, 10, 15, 30], id: \.self) { Text("\($0)").tag($0) }
                 }
@@ -199,9 +206,59 @@ private struct RecordingSettingsView: View {
         let megabits = s.quality == .high ? 6.0 : 3.0
         let perHour = megabits / 8 * 3600 / 1000      // GB per hour of 1080p video
         let hours = s.limitGB / perHour
-        let detail = s.mode == .always ? "" : " Recording only on activity uses less."
+        let detail = s.mode == .always ? "" : " Recording only when something is in view uses less."
         return String(format: "About %.1f GB per camera per hour at 1080p, so %d GB holds roughly %.0f camera-hours.%@",
                       perHour, Int(s.limitGB), hours, detail)
+    }
+}
+
+/// Chooses the kinds of object that start a recording.
+private struct TriggerPicker: View {
+    @Binding var chosen: Set<String>
+    @State private var search = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text(chosen.isEmpty ? "No objects chosen" : "Record when these appear: \(summary)")
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button("People") { chosen = ["person"] }
+                Button("Vehicles") { chosen = Set(ObjectCatalog.groups[1].labels) }
+                Button("Security") { chosen = ObjectCatalog.security }.help("People, vehicles, pets and bags")
+                Button("None") { chosen = [] }
+            }
+            .controlSize(.small)
+            SearchField(prompt: "Search objects", text: $search)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(ObjectCatalog.groups) { group in
+                        let labels = group.labels.filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }
+                        if !labels.isEmpty {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Label(group.name, systemImage: group.symbol).font(.subheadline.weight(.semibold))
+                                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3), spacing: 3) {
+                                    ForEach(labels, id: \.self) { label in
+                                        Toggle(label.capitalized, isOn: Binding(
+                                            get: { chosen.contains(label) },
+                                            set: { on in if on { chosen.insert(label) } else { chosen.remove(label) } }))
+                                        .toggleStyle(.checkbox).font(.callout)
+                                    }
+                                }
+                                .padding(.leading, 22)
+                            }
+                        }
+                    }
+                }
+                .padding(.trailing, 6)
+            }
+            .frame(height: 170)
+        }
+    }
+
+    private var summary: String {
+        let names = chosen.sorted()
+        return names.count <= 4 ? names.joined(separator: ", ") : names.prefix(3).joined(separator: ", ") + " and \(names.count - 3) more"
     }
 }
 
@@ -212,8 +269,8 @@ private struct AlertSettingsView: View {
     var body: some View {
         Form {
             Section("Alert me when") {
-                Toggle("An unknown person appears on a network camera", isOn: $model.notifyUnknown)
-                Toggle("Someone I have named appears on a network camera", isOn: $model.notifyKnown)
+                Toggle("An unknown person appears on a camera", isOn: $model.notifyUnknown)
+                Toggle("Someone I have named appears on a camera", isOn: $model.notifyKnown)
             }
             Section("On this Mac") {
                 Toggle("Show a macOS notification", isOn: $model.alerts.mac)
@@ -221,14 +278,18 @@ private struct AlertSettingsView: View {
             Section {
                 Toggle("Send to ntfy", isOn: $model.alerts.ntfyEnabled)
                 if model.alerts.ntfyEnabled {
-                    TextField("Server", text: $model.alerts.ntfyServer, prompt: Text("https://ntfy.sh"))
+                    LabeledContent("Server") {
+                        TextField("Server", text: $model.alerts.ntfyServer, prompt: Text("https://ntfy.sh")).labelsHidden().inputField(symbol: "server.rack").frame(maxWidth: 340)
+                    }
                     LabeledContent("Topic") {
                         HStack(spacing: 6) {
-                            TextField("Topic", text: $model.alerts.ntfyTopic, prompt: Text("a long, hard-to-guess name")).labelsHidden()
-                            Button("Suggest") { model.alerts.ntfyTopic = AlertSettings.randomTopic() }
+                            TextField("Topic", text: $model.alerts.ntfyTopic, prompt: Text("a long, hard-to-guess name")).labelsHidden().inputField(symbol: "number").frame(maxWidth: 250)
+                            Button("Suggest") { model.alerts.ntfyTopic = AlertSettings.randomTopic() }.actionButton()
                         }
                     }
-                    SecureField("Access token", text: $model.alerts.ntfyToken, prompt: Text("Only if your server needs one"))
+                    LabeledContent("Access token") {
+                        SecureField("Access token", text: $model.alerts.ntfyToken, prompt: Text("Only if your server needs one")).labelsHidden().inputField(symbol: "key").frame(maxWidth: 340)
+                    }
                     PhoneSetup(server: model.alerts.ntfyServer, topic: model.alerts.ntfyTopic)
                     TestRow(channel: .ntfy)
                 }
@@ -238,8 +299,12 @@ private struct AlertSettingsView: View {
             Section {
                 Toggle("Send to Telegram", isOn: $model.alerts.telegramEnabled)
                 if model.alerts.telegramEnabled {
-                    SecureField("Bot token", text: $model.alerts.telegramToken, prompt: Text("From @BotFather"))
-                    TextField("Chat ID", text: $model.alerts.telegramChat, prompt: Text("Your chat or group ID"))
+                    LabeledContent("Bot token") {
+                        SecureField("Bot token", text: $model.alerts.telegramToken, prompt: Text("From @BotFather")).labelsHidden().inputField(symbol: "key").frame(maxWidth: 340)
+                    }
+                    LabeledContent("Chat ID") {
+                        TextField("Chat ID", text: $model.alerts.telegramChat, prompt: Text("Your chat or group ID")).labelsHidden().inputField(symbol: "number").frame(maxWidth: 340)
+                    }
                     Text("Create a bot with @BotFather in Telegram and send your bot a message first, so it is allowed to write to you. The chat ID is a number; @userinfobot can tell you yours.")
                         .font(.caption).foregroundStyle(.secondary)
                     TestRow(channel: .telegram)
@@ -250,7 +315,9 @@ private struct AlertSettingsView: View {
             Section {
                 Toggle("Send to a webhook", isOn: $model.alerts.webhookEnabled)
                 if model.alerts.webhookEnabled {
-                    TextField("Address", text: $model.alerts.webhookURL, prompt: Text("https://example.com/hook"))
+                    LabeledContent("Address") {
+                        TextField("Address", text: $model.alerts.webhookURL, prompt: Text("https://example.com/hook")).labelsHidden().inputField(symbol: "link").frame(maxWidth: 340)
+                    }
                     Text("FaceRec sends a POST with JSON: app, event, known, name, camera, time, title, message, test, and image_jpeg_base64 when a picture is included. Works with Home Assistant, n8n, Zapier, IFTTT and similar.")
                         .font(.caption).foregroundStyle(.secondary)
                     TestRow(channel: .webhook)
@@ -358,14 +425,14 @@ private struct GeneralSettings: View {
 
     var body: some View {
         Form {
-            Section("Network cameras") {
+            Section("Cameras") {
                 Picker("Analyse each one at least every", selection: $model.networkPatience) {
                     Text("0.5 seconds").tag(0.5)
                     Text("1 second").tag(1.0)
                     Text("2 seconds").tag(2.0)
                     Text("5 seconds").tag(5.0)
                 }
-                Text("This Mac's camera always has priority. Network cameras are analysed in the gaps, as often as the Mac can manage, and never less often than this. Their video keeps playing at full speed either way.")
+                Text("Cameras take turns being analysed, as often as the Mac can manage and never less often than this. Their video keeps playing at full speed either way.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Updates") {

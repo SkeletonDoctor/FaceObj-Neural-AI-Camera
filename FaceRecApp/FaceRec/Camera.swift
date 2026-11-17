@@ -1,6 +1,6 @@
 import AVFoundation
 
-/// Camera capture: mirrored BGRA frames at a chosen resolution and frame rate.
+/// Camera capture: BGRA frames from a camera on this Mac at a chosen resolution and frame rate.
 final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
     struct Device: Identifiable, Hashable, Sendable {
         let id: String
@@ -50,6 +50,10 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
         }
     }
 
+    /// Flip the picture left to right, like a mirror. On for the Add Person
+    /// preview, off for cameras used as security streams.
+    var mirrored = false
+
     /// Called on the frame queue for every captured frame.
     var onFrame: ((CVPixelBuffer) -> Void)?
 
@@ -96,9 +100,9 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
     /// `completion` gets an error message (or nil) and the mode actually in use.
     func start(deviceID: String?, mode: Mode?, completion: @escaping @Sendable (String?, Mode?) -> Void) {
         sessionQueue.async { [self] in
-            guard let device = deviceID.flatMap(AVCaptureDevice.init(uniqueID:))
-                    ?? AVCaptureDevice.default(for: .video) else {
-                completion("No camera found.", nil)
+            // A named camera must be that camera; only "no preference" falls back to the default one.
+            guard let device = deviceID == nil ? AVCaptureDevice.default(for: .video) : AVCaptureDevice(uniqueID: deviceID!) else {
+                completion(deviceID == nil ? "No camera found." : "This camera is not connected.", nil)
                 return
             }
             do {
@@ -140,10 +144,9 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
 
         let active = selectFormat(device, mode: mode)
 
-        // Mirror like a mirror, as the Python app did with cv2.flip.
         if let connection = output.connection(with: .video), connection.isVideoMirroringSupported {
             connection.automaticallyAdjustsVideoMirroring = false
-            connection.isVideoMirrored = true
+            connection.isVideoMirrored = mirrored
         }
         return active
     }
@@ -199,5 +202,116 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
     enum CameraError: LocalizedError {
         case cannotAdd
         var errorDescription: String? { "the capture session rejected the device" }
+    }
+}
+
+/// A camera on this Mac (built in, USB or Continuity) used as a stream, the
+/// same way a network camera is. Its address looks like
+/// `device://camera?id=<camera id>&w=1920&h=1080&fps=30`.
+final class DeviceSource: StreamSource, @unchecked Sendable {
+    static let scheme = "device"
+
+    var onFrame: (@Sendable (CVPixelBuffer) -> Void)?
+    var onStatus: (@Sendable (StreamStatus) -> Void)?
+
+    private let camera = Camera()
+    private let deviceID: String?
+    private let mode: Camera.Mode?
+    private let queue = DispatchQueue(label: "facerec.device-camera")
+
+    // Used on `queue` only.
+    private var stopped = true
+    private var live = false
+    private var lastFrame = Date()
+    private var timer: DispatchSourceTimer?
+
+    init(url: URL, mirrored: Bool = false) {
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func value(_ name: String) -> String? { items.first { $0.name == name }?.value }
+        deviceID = value("id")
+        if let w = value("w").flatMap(Int.init), let h = value("h").flatMap(Int.init), let fps = value("fps").flatMap(Int.init) {
+            mode = Camera.Mode(width: w, height: h, fps: fps)
+        } else {
+            mode = nil
+        }
+        camera.mirrored = mirrored
+    }
+
+    static func handles(_ url: URL) -> Bool { url.scheme?.lowercased() == scheme }
+
+    static func address(deviceID: String, mode: Camera.Mode?) -> String {
+        var parts = URLComponents()
+        parts.scheme = scheme
+        parts.host = "camera"
+        parts.queryItems = [URLQueryItem(name: "id", value: deviceID)]
+        if let mode {
+            parts.queryItems! += [URLQueryItem(name: "w", value: String(mode.width)), URLQueryItem(name: "h", value: String(mode.height)),
+                                  URLQueryItem(name: "fps", value: String(mode.fps))]
+        }
+        return parts.string ?? "device://camera"
+    }
+
+    /// The camera id inside a device address.
+    static func deviceID(in address: String) -> String? {
+        URLComponents(string: address)?.queryItems?.first { $0.name == "id" }?.value
+    }
+
+    func start() {
+        queue.async { [self] in
+            guard stopped else { return }
+            stopped = false
+            connect()
+            // A camera that is unplugged, or taken by something else, stops sending: notice and retry.
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.schedule(deadline: .now() + 5, repeating: 5)
+            timer.setEventHandler { [weak self] in
+                guard let self, !self.stopped, Date().timeIntervalSince(self.lastFrame) > 8 else { return }
+                if self.live { self.onStatus?(.failed("The camera stopped sending video.")) }
+                self.live = false
+                self.connect()
+            }
+            timer.resume()
+            self.timer = timer
+        }
+    }
+
+    func stop() {
+        queue.async { [self] in
+            stopped = true
+            timer?.cancel()
+            timer = nil
+            camera.onFrame = nil
+            camera.stop()
+        }
+    }
+
+    private func connect() {
+        lastFrame = Date()
+        if !live { onStatus?(.connecting) }
+        AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+            guard let self else { return }
+            self.queue.async {
+                guard !self.stopped else { return }
+                guard granted else {
+                    self.onStatus?(.failed("Camera access is off for FaceRec. Turn it on in System Settings › Privacy & Security › Camera."))
+                    return
+                }
+                self.camera.onFrame = { [weak self] frame in
+                    guard let self else { return }
+                    self.onFrame?(frame)
+                    self.queue.async {
+                        self.lastFrame = Date()
+                        if !self.live, !self.stopped {
+                            self.live = true
+                            self.onStatus?(.live)
+                        }
+                    }
+                }
+                self.camera.start(deviceID: self.deviceID, mode: self.mode) { [weak self] error, _ in
+                    guard let self, let error else { return }
+                    self.queue.async { if !self.stopped { self.onStatus?(.failed(error)) } }
+                }
+            }
+        }
     }
 }

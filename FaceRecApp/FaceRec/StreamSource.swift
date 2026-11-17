@@ -24,6 +24,7 @@ enum StreamSources {
     static func make(_ address: String) -> StreamSource? {
         guard let url = URL(string: address.trimmingCharacters(in: .whitespacesAndNewlines)), url.host != nil else { return nil }
         switch url.scheme?.lowercased() {
+        case DeviceSource.scheme: return DeviceSource(url: url)
         case "rtsp", "rtsps": return RTSPSource(url: url)
         case "http", "https": return HLSSource.handles(url) ? HLSSource(url: url) : HTTPCameraSource(url: url)
         default: return nil
@@ -32,6 +33,9 @@ enum StreamSources {
 
     /// The address with any password hidden, for showing in lists.
     static func masked(_ address: String) -> String {
+        if let id = DeviceSource.deviceID(in: address), address.hasPrefix(DeviceSource.scheme + ":") {
+            return Camera.devices().first { $0.id == id }.map { "This Mac · \($0.name)" } ?? "A camera on this Mac (not connected)"
+        }
         guard var parts = URLComponents(string: address), parts.password != nil else { return address }
         parts.password = "••••"
         return parts.string?.removingPercentEncoding ?? address
