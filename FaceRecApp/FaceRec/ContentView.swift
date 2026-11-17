@@ -2,13 +2,10 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var showPeople = false
-    @State private var sideTab = SidePanel.Tab.people
-    @State private var showObjects = false
     @FocusState private var videoFocused: Bool
 
-    /// Several cameras at once (or security mode, where there is always room for one more).
-    private var showsGrid: Bool { model.gridMode && (model.feeds.count > 1 || (model.securityMode && !model.feeds.isEmpty)) }
+    /// The grid always has room for one more camera.
+    private var showsGrid: Bool { model.gridMode && !model.feeds.isEmpty }
 
     var body: some View {
         ZStack {
@@ -46,11 +43,16 @@ struct ContentView: View {
                 if let toast = model.toast {
                     Label(toast, systemImage: "checkmark.circle.fill")
                         .font(.callout.weight(.medium))
-                        .padding(.horizontal, 14).padding(.vertical, 9)
-                        .background(.regularMaterial, in: Capsule())
-                        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                } else if model.engine != nil, !showsGrid {
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16).frame(height: 38)
+                        .glass(Capsule())
+                        .environment(\.colorScheme, .dark)
+                        .transition(.scale(scale: 0.9).combined(with: .opacity))
+                }
+                // The toast sits above the summary instead of replacing it, so nothing jumps.
+                if model.engine != nil, showsGrid {
+                    GridSummary()
+                } else if model.engine != nil, model.toast == nil {
                     NamingHint(model: model.status).transition(.opacity)
                 }
                 UpdateCapsule(updater: Updater.shared)
@@ -65,25 +67,30 @@ struct ContentView: View {
             switch press.characters.lowercased() {
             case "a": model.beginLabel()
             case "o": model.toggleObjects()
+            case "f": model.setFaces(!model.facesEnabled)
+            case "n": model.showNeural.toggle()
             case "s": model.save()
-            case "l": sideTab = .people; togglePeople(!(showPeople && sideTab == .people))
-            case "e", "h": sideTab = .events; model.unseenEvents = 0; togglePeople(true)
-            case "g": if model.feeds.count > 1 { model.gridMode.toggle() }
+            case "l":
+                if model.showSidePanel && model.sideTab == .people { model.setSidePanel(false) } else { model.openSidePanel(.people) }
+            case "e", "h": model.openSidePanel(.events)
+            case "g": if !model.feeds.isEmpty { model.gridMode.toggle() }
+            case "p": model.showAddPerson = true
             case "r": model.toggleRecordingAll()
             default: return .ignored
             }
             return .handled
         }
         .toolbar { toolbar }
-        .inspector(isPresented: $showPeople) {
-            SidePanel(tab: $sideTab).inspectorColumnWidth(min: 270, ideal: 320, max: 420)
+        .inspector(isPresented: $model.showSidePanel) {
+            SidePanel(tab: $model.sideTab).inspectorColumnWidth(min: 270, ideal: 320, max: 420)
         }
         .sheet(item: $model.labelRequest) { LabelSheet(request: $0) }
         .sheet(isPresented: $model.showEnrol) { EnrolSheet() }
         .sheet(item: $model.cameraDraft) { draft in
             CameraEditorSheet(draft: draft) { model.saveCamera($0) }
         }
-        .sheet(isPresented: $model.showModeChooser) { ModeChooser() }
+        .sheet(isPresented: $model.showWelcome) { WelcomeSheet() }
+        .sheet(isPresented: $model.showAddPerson) { AddPersonSheet() }
         .alert(item: $model.notice) {
             Alert(title: Text($0.title), message: Text($0.message))
         }
@@ -93,69 +100,19 @@ struct ContentView: View {
         }
     }
 
-    private func togglePeople(_ show: Bool) {
-        if show { model.refreshPeople() }
-        showPeople = show
-    }
-
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        // Left: what belongs to the current mode.
-        if model.securityMode {
-            ToolbarItem(placement: .navigation) {
-                Button { model.addCamera() } label: {
-                    Label("Add Camera", systemImage: "plus").labelStyle(.titleAndIcon)
-                }
-                .help("Add a network camera")
+        // Left: everything that adds something.
+        ToolbarItem(placement: .navigation) {
+            Menu {
+                AddMenuItems(model: model)
+            } label: {
+                Label("Add", systemImage: "plus").labelStyle(.titleAndIcon)
             }
-        } else {
-            ToolbarItem(placement: .navigation) {
-                Picker("Camera", selection: Binding(get: { model.cameraID }, set: { model.selectCamera($0) })) {
-                    ForEach(model.cameras) { Text($0.name).tag(Optional($0.id)) }
-                }
-                .help("Choose the camera")
-            }
-            ToolbarItem(placement: .navigation) {
-                Menu {
-                    Picker("Resolution", selection: Binding(
-                        get: { model.mode.map { "\($0.width)x\($0.height)" } ?? "" },
-                        set: { model.selectResolution($0) })) {
-                        ForEach(model.resolutions) { Text($0.label).tag($0.id) }
-                    }
-                    .pickerStyle(.inline)
-                    Picker("Frame Rate", selection: Binding(get: { model.mode?.fps ?? 0 }, set: { model.selectFrameRate($0) })) {
-                        ForEach(model.frameRates, id: \.self) { Text("\(String($0)) fps").tag($0) }
-                    }
-                    .pickerStyle(.inline)
-                } label: {
-                    Label(model.mode.map { "\(String($0.height))p · \(String($0.fps)) fps" } ?? "Quality", systemImage: "slider.horizontal.3")
-                        .labelStyle(.titleAndIcon)
-                }
-                .disabled(model.resolutions.isEmpty)
-                .help("Camera resolution and frame rate")
-            }
+            .help("Add a camera or a person")
         }
 
-        // Centre: the mode.
-        ToolbarItem(placement: .principal) {
-            Picker("Mode", selection: Binding(get: { model.securityMode }, set: { model.setMode(security: $0) })) {
-                Label("This Mac", systemImage: "laptopcomputer").tag(false)
-                Label("Security", systemImage: "shield.lefthalf.filled").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .labelStyle(.titleAndIcon)
-            .frame(width: 230)
-            .help("This Mac: recognise people at this Mac's camera. Security: watch network cameras, log who appears and get alerts.")
-        }
-
-        // Right: actions and panels.
-        ToolbarItem(placement: .primaryAction) {
-            Button { model.beginLabel() } label: {
-                Label("Name Face", systemImage: "person.crop.circle.badge.plus").labelStyle(.titleAndIcon)
-            }
-            .buttonStyle(.borderedProminent)
-            .help("Name the largest face in view (A)")
-        }
+        // Right: record, what is on screen, the rest.
         ToolbarItem(placement: .primaryAction) {
             Button { model.toggleRecordingAll() } label: {
                 Label(model.recordingIDs.isEmpty ? "Record" : "Stop", systemImage: model.recordingIDs.isEmpty ? "record.circle" : "stop.circle.fill")
@@ -164,25 +121,26 @@ struct ContentView: View {
             }
             .help(model.recordingIDs.isEmpty ? "Record every camera to video, with the overlays (R)" : "Stop recording (R)")
         }
-        if model.feeds.count > 1 {
-            ToolbarItem(placement: .primaryAction) {
-                Toggle(isOn: $model.gridMode) { Label("Grid", systemImage: "square.grid.2x2") }
-                    .help("Show every camera, or only the selected one (G)")
-            }
-        }
         ToolbarItem(placement: .primaryAction) {
-            Button { showObjects.toggle() } label: {
-                Label("Objects", systemImage: model.objectsEnabled ? "cube.fill" : "cube.transparent")
-                    .foregroundStyle(model.objectsEnabled ? Color.accentColor : .primary)
+            Button { model.showNeural.toggle() } label: {
+                Label("Neural", systemImage: "brain")
+                    .labelStyle(.titleAndIcon)
+                    .foregroundStyle(model.facesEnabled || model.objectsEnabled ? Color.primary : .orange)
             }
-            .help("Object detection and which objects to show (O turns it on and off)")
-            .popover(isPresented: $showObjects, arrowEdge: .bottom) { ObjectsPopover() }
+            .help("Face recognition and object detection: turn them on or off and tune them (N)")
+            .popover(isPresented: $model.showNeural, arrowEdge: .bottom) { NeuralPanel() }
         }
         ToolbarItem(placement: .primaryAction) {
             Menu {
-                Button("Enrol from Photos…", systemImage: "photo.badge.plus") { model.showEnrol = true }
+                ViewMenuItems(model: model)
+            } label: {
+                Label("View", systemImage: model.unseenEvents > 0 ? "rectangle.3.group.bubble" : "rectangle.3.group").labelStyle(.titleAndIcon)
+            }
+            .help("Layout, and the people, history and recordings lists")
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
                 Button("Identify a Photo…", systemImage: "text.viewfinder") { model.identifyPhoto() }
-                Divider()
                 Button("Save Database", systemImage: "square.and.arrow.down") { model.save() }
                 Divider()
                 SettingsLink { Label("Settings…", systemImage: "gearshape") }
@@ -193,35 +151,102 @@ struct ContentView: View {
             .help("Photos, saving, settings and updates")
         }
         ToolbarItem(placement: .primaryAction) {
-            Toggle(isOn: Binding(get: { showPeople }, set: togglePeople)) {
-                Label("People and History", systemImage: model.unseenEvents > 0 ? "person.2.badge.plus" : "person.2")
+            Toggle(isOn: Binding(get: { model.showSidePanel }, set: model.setSidePanel)) {
+                Label("Side Panel", systemImage: "sidebar.trailing")
             }
-            .help(model.unseenEvents > 0 ? "\(model.unseenEvents) new face(s) in the history. People (L), History (H)" : "People (L) and face history (H)")
+            .help(model.unseenEvents > 0 ? "\(model.unseenEvents) new face(s) in the history" : "Show or hide the side panel")
         }
     }
 }
 
-/// Security mode with nothing to watch yet.
+/// Everything that adds something. Shared by the toolbar's Add menu and the File menu.
+struct AddMenuItems: View {
+    @ObservedObject var model: AppModel
+    var shortcuts = false
+
+    var body: some View {
+        Button("Add Camera…", systemImage: "video.badge.plus") { model.addCamera() }
+            .keyboardShortcut(shortcuts ? KeyboardShortcut("n") : nil)
+        Button("Add Person…", systemImage: "person.crop.circle.badge.plus") { model.showAddPerson = true }
+            .keyboardShortcut(shortcuts ? KeyboardShortcut("n", modifiers: [.command, .shift]) : nil)
+        Divider()
+        Button("Name Face in View", systemImage: "person.fill.viewfinder") { model.beginLabel() }
+            .disabled(model.feeds.isEmpty)
+        Button("Enrol from Photos…", systemImage: "photo.badge.plus") { model.showEnrol = true }
+    }
+}
+
+/// The neural networks: face recognition, learning and object detection.
+/// The menu bar's Neural menu; the toolbar's Neural button opens the full panel.
+struct NeuralMenuItems: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        Toggle(isOn: Binding(get: { model.facesEnabled }, set: { model.setFaces($0) })) {
+            Label("Recognise Faces", systemImage: "face.smiling")
+        }
+        Toggle(isOn: Binding(get: { model.learningEnabled }, set: { model.setLearning($0) })) {
+            Label("Learn New Angles While Watching", systemImage: "sparkles")
+        }
+        .disabled(!model.facesEnabled)
+        Divider()
+        Toggle(isOn: Binding(get: { model.objectsEnabled }, set: { _ in model.toggleObjects() })) {
+            Label("Detect Objects", systemImage: "cube")
+        }
+        Divider()
+        Button("Neural Panel…", systemImage: "brain") { model.showNeural = true }
+            .keyboardShortcut("e")
+    }
+}
+
+/// What is on screen: the layout and the side panel's lists.
+/// Shared by the toolbar's View menu and the View menu in the menu bar.
+struct ViewMenuItems: View {
+    @ObservedObject var model: AppModel
+    var shortcuts = false
+
+    var body: some View {
+        if !model.feeds.isEmpty {
+            Picker("Layout", selection: $model.gridMode) {
+                Label("Camera Grid", systemImage: "square.grid.2x2").tag(true)
+                Label("Selected Camera", systemImage: "rectangle.inset.filled").tag(false)
+            }
+            .pickerStyle(.inline)
+        }
+        Section("Side Panel") {
+            Button("People", systemImage: "person.2") { model.openSidePanel(.people) }
+                .keyboardShortcut(shortcuts ? KeyboardShortcut("1") : nil)
+            Button(model.unseenEvents > 0 ? "History (\(model.unseenEvents) new)" : "History", systemImage: "clock.arrow.circlepath") { model.openSidePanel(.events) }
+                .keyboardShortcut(shortcuts ? KeyboardShortcut("2") : nil)
+            Button("Recordings", systemImage: "film.stack") { model.openSidePanel(.recordings) }
+                .keyboardShortcut(shortcuts ? KeyboardShortcut("3") : nil)
+        }
+    }
+}
+
+/// Nothing to watch yet.
 private struct NoCamerasView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "shield.lefthalf.filled").font(.system(size: 44)).foregroundStyle(.green)
-                .frame(width: 88, height: 88).background(.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 22))
+                .frame(width: 88, height: 88).glass(RoundedRectangle(cornerRadius: 24), tint: .green.opacity(0.25))
             VStack(spacing: 6) {
                 Text(model.networkCameras.isEmpty ? "Add your first camera" : "All cameras are switched off")
                     .font(.title2.weight(.semibold))
                 Text(model.networkCameras.isEmpty
-                     ? "Security mode watches cameras on your network. Add one by its address and FaceRec will show it here, log who appears and alert you about strangers."
+                     ? "FaceRec watches the cameras you add, on your network or plugged into this Mac. It shows them here, logs who appears and can alert you about strangers."
                      : "Turn a camera back on in Settings, or add another one.")
-                    .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 420)
+                    .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 440)
             }
             HStack(spacing: 10) {
                 Button { model.addCamera() } label: { Label("Add Camera…", systemImage: "plus") }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .actionButton(prominent: true).controlSize(.large)
+                Button { model.showAddPerson = true } label: { Label("Add Person…", systemImage: "person.crop.circle.badge.plus") }
+                    .actionButton().controlSize(.large)
                 if !model.networkCameras.isEmpty {
-                    SettingsLink { Text("Open Settings…") }.controlSize(.large)
+                    SettingsLink { Text("Open Settings…") }.actionButton().controlSize(.large)
                 }
             }
         }
@@ -249,7 +274,9 @@ struct FeedView: View {
                     Text("Connecting to \(feed.name)…").font(.callout)
                 }
                 .foregroundStyle(.white)
-                .padding(14).background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal, 18).padding(.vertical, 14)
+                .glass(RoundedRectangle(cornerRadius: 16))
+                .environment(\.colorScheme, .dark)
             case .failed(let message):
                 VStack(spacing: 6) {
                     Image(systemName: "wifi.exclamationmark").font(.title2)
@@ -257,8 +284,9 @@ struct FeedView: View {
                     Text("Trying again…").font(.caption).foregroundStyle(.white.opacity(0.6))
                 }
                 .foregroundStyle(.white)
-                .padding(14).frame(maxWidth: 320)
-                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal, 18).padding(.vertical, 14).frame(maxWidth: 320)
+                .glass(RoundedRectangle(cornerRadius: 16), tint: .red.opacity(0.25))
+                .environment(\.colorScheme, .dark)
             }
         }
     }
@@ -271,10 +299,10 @@ struct CameraGrid: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let count = model.feeds.count + (model.securityMode ? 1 : 0)
+            let count = model.feeds.count + 1
             let columns = max(1, Int(Double(count).squareRoot().rounded(.up)))
             let rows = max(1, Int((Double(count) / Double(columns)).rounded(.up)))
-            let spacing: CGFloat = 8
+            let spacing: CGFloat = 10
             let width = (proxy.size.width - spacing * CGFloat(columns + 1)) / CGFloat(columns)
             let height = (proxy.size.height - spacing * CGFloat(rows + 1)) / CGFloat(rows)
             VStack(spacing: spacing) {
@@ -302,6 +330,7 @@ struct CameraGrid: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .padding(.bottom, 52)   // room for the summary pill, so it never covers video
     }
 }
 
@@ -313,11 +342,11 @@ struct CameraTile: View {
 
     var body: some View {
         FeedView(feed: feed)
-            .overlay(alignment: .topLeading) { TileHeader(feed: feed, recording: model.recordingIDs.contains(feed.id)).padding(8) }
-            .overlay(alignment: .bottomLeading) { TileStats(status: feed.status).padding(8) }
+            .overlay(alignment: .topLeading) { TileHeader(feed: feed, recording: model.recordingIDs.contains(feed.id)).padding(10) }
+            .overlay(alignment: .bottomLeading) { TileStats(status: feed.status).padding(10) }
             .overlay(alignment: .topTrailing) {
                 if hovering {
-                    HStack(spacing: 6) {
+                    GlassGroup(spacing: 6) { HStack(spacing: 6) {
                         tileButton(model.recordingIDs.contains(feed.id) ? "stop.fill" : "record.circle",
                                    help: model.recordingIDs.contains(feed.id) ? "Stop recording this camera" : "Record this camera") {
                             model.toggleRecording(id: feed.id)
@@ -326,28 +355,29 @@ struct CameraTile: View {
                             model.selectedFeedID = feed.id
                             model.gridMode = false
                         }
-                        if !feed.isLocal {
+                        do {
                             Menu {
                                 menuItems
                             } label: {
                                 Image(systemName: "ellipsis").font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
-                                    .frame(width: 26, height: 26).background(.black.opacity(0.6), in: Circle())
+                                    .frame(width: 28, height: 28).glass(Circle(), interactive: true)
                             }
                             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                             .help("Edit, switch off or remove this camera")
                         }
-                    }
-                    .padding(8)
+                    } }
+                    .environment(\.colorScheme, .dark)
+                    .padding(10)
                     .transition(.opacity)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? Color.accentColor : .white.opacity(0.10),
-                                                                    lineWidth: selected ? 2 : 1))
-            .shadow(color: .black.opacity(0.35), radius: 6, y: 2)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(selected ? Color.accentColor : .white.opacity(0.10), lineWidth: selected ? 2 : 1))
+            .shadow(color: .black.opacity(0.4), radius: 10, y: 4)
             .contentShape(Rectangle())
             .onHover { inside in withAnimation(.easeOut(duration: 0.12)) { hovering = inside } }
-            .contextMenu { if !feed.isLocal { menuItems } }
+            .contextMenu { menuItems }
             .accessibilityLabel(feed.name)
     }
 
@@ -361,7 +391,7 @@ struct CameraTile: View {
     private func tileButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                .frame(width: 26, height: 26).background(.black.opacity(0.6), in: Circle())
+                .frame(width: 28, height: 28).glass(Circle(), interactive: true)
         }
         .buttonStyle(.plain).help(help)
     }
@@ -376,19 +406,20 @@ private struct AddCameraTile: View {
         Button { model.addCamera() } label: {
             VStack(spacing: 10) {
                 Image(systemName: "plus").font(.system(size: 26, weight: .medium))
-                    .frame(width: 56, height: 56).background(.white.opacity(hovering ? 0.14 : 0.08), in: Circle())
+                    .frame(width: 56, height: 56).glass(Circle(), interactive: true)
                 Text("Add Camera").font(.callout.weight(.medium))
             }
             .foregroundStyle(.white.opacity(hovering ? 0.95 : 0.6))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(.white.opacity(hovering ? 0.05 : 0.02), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12)
+            .background(.white.opacity(hovering ? 0.05 : 0.02), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(.white.opacity(hovering ? 0.35 : 0.18), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])))
-            .contentShape(RoundedRectangle(cornerRadius: 12))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .environment(\.colorScheme, .dark)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help("Add a network camera")
+        .help("Add a network camera or a camera on this Mac")
     }
 }
 
@@ -400,7 +431,7 @@ private struct TileHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             Circle().fill(colour).frame(width: 7, height: 7)
-            Image(systemName: feed.isLocal ? "laptopcomputer" : "video.fill").font(.system(size: 10, weight: .semibold))
+            Image(systemName: feed.isDevice ? "web.camera.fill" : "video.fill").font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.7))
             Text(feed.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
             if recording {
@@ -410,9 +441,9 @@ private struct TileHeader: View {
             }
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 9).frame(height: 24)
-        .background(.black.opacity(0.6), in: Capsule())
-        .overlay(Capsule().strokeBorder(.white.opacity(0.10)))
+        .padding(.horizontal, 10).frame(height: 26)
+        .glass(Capsule())
+        .environment(\.colorScheme, .dark)
     }
 
     private var colour: Color {
@@ -437,9 +468,10 @@ private struct TileStats: View {
         }
         .font(.system(size: 10.5, weight: .medium).monospacedDigit())
         .labelStyle(.titleAndIcon)
-        .foregroundStyle(.white.opacity(0.8))
-        .padding(.horizontal, 9).frame(height: 22)
-        .background(.black.opacity(0.55), in: Capsule())
+        .foregroundStyle(.white.opacity(0.9))
+        .padding(.horizontal, 10).frame(height: 24)
+        .glass(Capsule())
+        .environment(\.colorScheme, .dark)
     }
 }
 
@@ -454,7 +486,7 @@ struct StatusBar: View {
 
     var body: some View {
         let s = model.summary
-        HStack(spacing: 8) {
+        GlassGroup(spacing: 8) { HStack(spacing: 8) {
             if let name { chip(name, symbol: "video.fill", tint: .white, help: "The camera on screen") }
             if recording { chip("REC", symbol: "record.circle.fill", tint: .red, help: "This camera is being recorded") }
             chip("\(s.fps) fps", symbol: "circle.fill", tint: s.fps > 0 ? .red : .secondary, help: "Camera frame rate")
@@ -464,7 +496,7 @@ struct StatusBar: View {
             if s.objectsEnabled {
                 chip("\(s.objects)", symbol: "cube.transparent", tint: .cyan, help: "Objects in view")
             }
-        }
+        } }
         .animation(.snappy(duration: 0.2), value: s.objectsEnabled)
     }
 
@@ -473,9 +505,8 @@ struct StatusBar: View {
             Image(systemName: symbol).font(.system(size: symbol == "circle.fill" ? 7 : 11, weight: .semibold)).foregroundStyle(tint)
             Text(text).font(.system(size: 12, weight: .medium).monospacedDigit()).foregroundStyle(.white)
         }
-        .padding(.horizontal, 10).frame(height: 26)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+        .padding(.horizontal, 11).frame(height: 28)
+        .glass(Capsule())
         .environment(\.colorScheme, .dark)
         .help(help)
     }
@@ -508,13 +539,12 @@ struct UpdateCapsule: View {
             Image(systemName: "arrow.down.circle.fill").foregroundStyle(.tint)
             Text(text).font(.callout.weight(.medium)).monospacedDigit()
             if let button {
-                Button(button, action: action).buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.small)
+                Button(button, action: action).glassButton(prominent: true).buttonBorderShape(.capsule).controlSize(.small)
             }
         }
         .foregroundStyle(.white)
-        .padding(.leading, 12).padding(.trailing, button == nil ? 14 : 6).frame(height: 36)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+        .padding(.leading, 12).padding(.trailing, button == nil ? 14 : 6).frame(height: 38)
+        .glass(Capsule())
         .environment(\.colorScheme, .dark)
     }
 }
@@ -533,10 +563,51 @@ struct NamingHint: View {
                     .font(.callout.weight(.medium))
             }
             .foregroundStyle(.white)
-            .padding(.leading, 8).padding(.trailing, 14).frame(height: 34)
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+            .padding(.leading, 9).padding(.trailing, 15).frame(height: 36)
+            .glass(Capsule())
             .environment(\.colorScheme, .dark)
+        }
+    }
+}
+
+/// Shown under the grid: how many cameras are live, and who they can see.
+struct GridSummary: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            let live = model.feeds.filter { if case .live = $0.connection { true } else { false } }.count
+            let faces = model.feeds.reduce(0) { $0 + $1.status.summary.faces }
+            let unknown = model.feeds.reduce(0) { $0 + $1.status.summary.unknownFaces }
+            let recording = model.recordingIDs.count
+            HStack(spacing: 14) {
+                item("\(live) of \(model.feeds.count) live", symbol: "dot.radiowaves.left.and.right", tint: live == model.feeds.count ? .green : .orange)
+                    .help("Cameras sending video right now")
+                if model.facesEnabled {
+                    item(faces == 1 ? "1 face" : "\(faces) faces", symbol: "face.smiling", tint: .white)
+                        .help("Faces in view across every camera")
+                } else {
+                    item("Faces off", symbol: "face.dashed", tint: .orange)
+                        .help("Face recognition is switched off in the Neural panel. Nobody is being recognised or logged")
+                }
+                if unknown > 0 {
+                    item("\(unknown) unknown", symbol: "person.fill.questionmark", tint: .orange)
+                        .help("Faces nobody has named yet. They are kept in the history")
+                }
+                if recording > 0 {
+                    item("REC \(recording)", symbol: "record.circle.fill", tint: .red).help("Cameras being recorded")
+                }
+            }
+            .padding(.horizontal, 16).frame(height: 36)
+            .glass(Capsule())
+            .environment(\.colorScheme, .dark)
+        }
+    }
+
+    private func item(_ text: String, symbol: String, tint: Color) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
+            Text(text).font(.system(size: 12, weight: .medium).monospacedDigit()).foregroundStyle(.white)
         }
     }
 }
@@ -593,7 +664,7 @@ struct AngleGrid: View {
     }
 }
 
-/// The side panel: known people, and the history of faces seen.
+/// The side panel: known people, the history of faces seen, and recordings.
 struct SidePanel: View {
     enum Tab { case people, events, recordings }
     @Binding var tab: Tab
@@ -601,14 +672,12 @@ struct SidePanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Show", selection: $tab) {
-                Text("People").tag(Tab.people)
-                Text(model.unseenEvents > 0 ? "History (\(model.unseenEvents))" : "History").tag(Tab.events)
-                Text("Recordings").tag(Tab.recordings)
-            }
-            .pickerStyle(.segmented).labelsHidden()
-            .padding(.horizontal, 12).padding(.vertical, 10)
-            Divider()
+            PillPicker(selection: $tab, items: [
+                .init(value: .people, title: "People", symbol: "person.2.fill"),
+                .init(value: .events, title: "History", symbol: "clock.arrow.circlepath", badge: model.unseenEvents),
+                .init(value: .recordings, title: "Recordings", symbol: "film.stack"),
+            ])
+            .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 8)
             switch tab {
             case .people: PeoplePanel()
             case .events: EventsPanel(log: model.eventLog)
@@ -616,6 +685,52 @@ struct SidePanel: View {
             }
         }
         .onChange(of: tab) { _, new in if new == .events { model.unseenEvents = 0 } }
+    }
+}
+
+/// The strip at the bottom of a side panel list: a note on the left, actions on the right.
+private struct PanelFooter<Actions: View>: View {
+    let text: String
+    var symbol: String?
+    var help = ""
+    @ViewBuilder var actions: Actions
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider().opacity(0.6)
+            HStack(spacing: 8) {
+                Group {
+                    if let symbol { Label(text, systemImage: symbol) } else { Text(text) }
+                }
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1).help(help)
+                Spacer(minLength: 4)
+                actions.controlSize(.small)
+            }
+            .padding(.horizontal, 14).frame(height: 42)
+        }
+    }
+}
+
+/// A list of cards that scrolls.
+private struct CardList<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 6) { content }
+                .padding(.horizontal, 10).padding(.top, 2).padding(.bottom, 10)
+        }
+        .scrollIndicators(.automatic)
+    }
+}
+
+private struct PanelSectionTitle: View {
+    let text: String
+
+    var body: some View {
+        Text(text).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            .padding(.horizontal, 6).padding(.top, 8).padding(.bottom, 1)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -632,42 +747,19 @@ private struct RecordingsPanel: View {
                 } description: {
                     Text("Press Record in the toolbar to save the cameras to video, with the boxes and names drawn into the picture.")
                 }
+                .frame(maxHeight: .infinity)
             } else {
-                List(model.recordings) { file in
-                    let live = model.isBeingWritten(file)
-                    HStack(spacing: 10) {
-                        Image(systemName: live ? "record.circle.fill" : "film")
-                            .font(.system(size: 18)).foregroundStyle(live ? Color.red : .secondary).frame(width: 24)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(file.camera).font(.body.weight(.semibold)).lineLimit(1)
-                            Text("\(file.started.formatted(.dateTime.month(.abbreviated).day().hour().minute())) · \(ByteCountFormatter.string(fromByteCount: file.bytes, countStyle: .file))\(live ? " · recording" : "")")
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        Spacer(minLength: 0)
+                CardList {
+                    ForEach(model.recordings) { file in
+                        RecordingRow(file: file, live: model.isBeingWritten(file))
                     }
-                    .padding(.vertical, 3)
-                    .contentShape(Rectangle())
-                    .onTapGesture(count: 2) { NSWorkspace.shared.open(file.url) }
-                    .contextMenu {
-                        Button("Play", systemImage: "play") { NSWorkspace.shared.open(file.url) }
-                        Button("Show in Finder", systemImage: "folder") { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
-                        Divider()
-                        Button("Move to Trash", systemImage: "trash", role: .destructive) { model.deleteRecording(file) }.disabled(live)
-                    }
-                    .help("Double-click to play")
                 }
-                .listStyle(.inset)
-                .scrollContentBackground(.hidden)
             }
-            Divider()
-            HStack {
-                Text("\(ByteCountFormatter.string(fromByteCount: total, countStyle: .file)) of \(Int(model.recordingSettings.limitGB)) GB")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .help("Oldest recordings are deleted when the limit is reached")
-                Spacer()
-                Button("Show Folder") { NSWorkspace.shared.open(model.recordingSettings.folder) }.controlSize(.small)
+            PanelFooter(text: "\(ByteCountFormatter.string(fromByteCount: total, countStyle: .file)) of \(Int(model.recordingSettings.limitGB)) GB",
+                        symbol: "internaldrive", help: "Oldest recordings are deleted when the limit is reached") {
+                Button("Show Folder", systemImage: "folder") { NSWorkspace.shared.open(model.recordingSettings.folder) }
+                    .actionButton()
             }
-            .padding(.horizontal, 14).padding(.vertical, 8)
         }
         .task {
             while !Task.isCancelled {
@@ -678,103 +770,245 @@ private struct RecordingsPanel: View {
     }
 }
 
+private struct RecordingRow: View {
+    let file: RecordingFile
+    let live: Bool
+    @EnvironmentObject private var model: AppModel
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: live ? "record.circle.fill" : "film")
+                .font(.system(size: 15, weight: .medium)).foregroundStyle(live ? Color.red : .secondary)
+                .frame(width: 34, height: 34)
+                .background((live ? Color.red : Color.primary).opacity(live ? 0.18 : 0.08), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(file.camera).font(.body.weight(.semibold)).lineLimit(1)
+                Text("\(file.started.formatted(.dateTime.month(.abbreviated).day().hour().minute())) · \(ByteCountFormatter.string(fromByteCount: file.bytes, countStyle: .file))\(live ? " · recording" : "")")
+                    .font(.caption).foregroundStyle(live ? Color.red : .secondary).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            if hovering {
+                Button { NSWorkspace.shared.open(file.url) } label: {
+                    Image(systemName: "play.fill").font(.system(size: 10, weight: .bold))
+                        .frame(width: 26, height: 26).glass(Circle(), interactive: true).contentShape(Circle())
+                }
+                .buttonStyle(.plain).help("Play").accessibilityLabel("Play")
+            }
+        }
+        .panelCard()
+        .onHover { hovering = $0 }
+        .onTapGesture(count: 2) { NSWorkspace.shared.open(file.url) }
+        .contextMenu {
+            Button("Play", systemImage: "play") { NSWorkspace.shared.open(file.url) }
+            Button("Show in Finder", systemImage: "folder") { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
+            Divider()
+            Button("Move to Trash", systemImage: "trash", role: .destructive) { model.deleteRecording(file) }.disabled(live)
+        }
+        .help("Double-click to play")
+    }
+}
+
 /// The face history: who appeared on which camera, newest first. Unknown
-/// faces can be added to People from here.
+/// faces can be added to People from here, and matches can be confirmed (the
+/// app learns that view) or corrected (it forgets what misled it).
 private struct EventsPanel: View {
+    enum Filter { case everyone, unknown, unconfirmed }
+
     @ObservedObject var log: EventLog
     @EnvironmentObject private var model: AppModel
     @State private var showing: SecurityEvent?
     @State private var confirmClear = false
-    @State private var unknownOnly = false
+    @State private var filter = Filter.everyone
 
     var body: some View {
-        let events = unknownOnly ? log.events.filter { $0.name == nil } : log.events
-        VStack(spacing: 0) {
-            Picker("Show", selection: $unknownOnly) {
-                Text("Everyone").tag(false)
-                Text("Unknown only").tag(true)
+        let waiting = log.events.filter(\.canConfirm).count
+        let events = log.events.filter { event in
+            switch filter {
+            case .everyone: true
+            case .unknown: event.name == nil
+            case .unconfirmed: event.canConfirm
             }
-            .pickerStyle(.segmented).labelsHidden().controlSize(.small)
-            .padding(.horizontal, 12).padding(.vertical, 8)
+        }
+        VStack(spacing: 0) {
+            PillPicker(selection: $filter, items: [
+                .init(value: .everyone, title: "Everyone"),
+                .init(value: .unknown, title: "Unknown"),
+                .init(value: .unconfirmed, title: "To Confirm", badge: waiting),
+            ], compact: true)
+            .padding(.horizontal, 12).padding(.bottom, 6)
 
             if events.isEmpty {
                 ContentUnavailableView {
-                    Label(unknownOnly ? "No unknown faces" : "No faces yet", systemImage: "clock.arrow.circlepath")
+                    Label(emptyTitle, systemImage: filter == .unconfirmed ? "checkmark.seal" : "clock.arrow.circlepath")
                 } description: {
-                    Text("Faces the app does not know are kept here with a picture, so you can add them to People later. Network cameras log everyone who appears.")
+                    Text(filter == .unconfirmed
+                         ? "When a camera recognises someone, the match waits here. Confirm it and FaceRec learns that view of the person; say it is wrong and it forgets what misled it."
+                         : "Everyone the cameras see is kept here with a picture. Unknown faces can be added to People later, and matches can be confirmed or corrected.")
                 }
+                .frame(maxHeight: .infinity)
             } else {
-                List(events) { event in
-                    HStack(spacing: 12) {
-                        Avatar(name: event.name ?? "?", image: log.image(event.face))
-                            .overlay(Circle().strokeBorder(event.name == nil ? Color.orange : .clear, lineWidth: 2))
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(event.name ?? "Unknown person").font(.body.weight(.semibold))
-                                .foregroundStyle(event.name == nil ? Color.orange : .primary).lineLimit(1)
-                            Text("\(event.camera) · \(event.date.formatted(.dateTime.month(.abbreviated).day().hour().minute()))")
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                CardList {
+                    ForEach(days(events), id: \.day) { group in
+                        PanelSectionTitle(text: title(group.day))
+                        ForEach(group.events) { event in
+                            EventRow(event: event, log: log) { showing = event }
                         }
-                        Spacer(minLength: 0)
-                        if event.name == nil, event.samples != nil {
-                            Button("Add…") { model.beginLabel(event: event) }
-                                .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
-                                .help("Name this person and add them to People")
-                        } else if event.added == true {
-                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Added to People from here")
-                        }
-                    }
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                    .onTapGesture { showing = event }
-                    .contextMenu {
-                        if event.name == nil, event.samples != nil {
-                            Button("Add to People…", systemImage: "person.crop.circle.badge.plus") { model.beginLabel(event: event) }
-                        }
-                        Button("Show Snapshot", systemImage: "photo") { showing = event }
                     }
                 }
-                .listStyle(.inset)
-                .scrollContentBackground(.hidden)
             }
-            Divider()
-            HStack {
-                Text("\(log.events.count) of the latest \(EventLog.limit) kept").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Button("Clear…") { confirmClear = true }.controlSize(.small).disabled(log.events.isEmpty)
+            PanelFooter(text: "\(log.events.count) of the latest \(EventLog.limit) kept") {
+                Button("Clear…", systemImage: "trash") { confirmClear = true }
+                    .actionButton().disabled(log.events.isEmpty)
             }
-            .padding(.horizontal, 14).padding(.vertical, 8)
         }
         .onAppear { model.unseenEvents = 0 }
         .onChange(of: log.events.count) { _, _ in model.unseenEvents = 0 }
         .sheet(item: $showing) { event in
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 14) {
                 if let scene = log.image(event.scene) {
                     Image(nsImage: scene).resizable().scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.10)))
                 }
-                HStack {
+                HStack(spacing: 10) {
+                    Avatar(name: event.name ?? "?", image: log.image(event.face), size: 40)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(event.name ?? "Unknown person").font(.title3.weight(.semibold))
                         Text("\(event.camera) · \(event.date.formatted(date: .complete, time: .standard))")
                             .font(.callout).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if event.name == nil, event.samples != nil {
-                        Button("Add to People…") {
+                    if event.canAdd {
+                        Button("Add to People…", systemImage: "person.crop.circle.badge.plus") {
                             showing = nil
                             model.beginLabel(event: event)
                         }
+                        .actionButton()
                     }
-                    Button("Done") { showing = nil }.keyboardShortcut(.defaultAction)
+                    if event.canConfirm {
+                        Button("Wrong Person…", systemImage: "xmark") {
+                            showing = nil
+                            model.beginLabel(event: event)
+                        }
+                        .actionButton()
+                        Button("That Is Right", systemImage: "checkmark") {
+                            showing = nil
+                            model.confirmMatch(event)
+                        }
+                        .actionButton().tint(.green)
+                        .help("Learn this view of \(event.name ?? "")")
+                    }
+                    Button("Done") { showing = nil }.actionButton(prominent: true).keyboardShortcut(.defaultAction)
                 }
+                .controlSize(.large)
             }
             .padding(20)
-            .frame(width: 640)
+            .frame(width: 680)
         }
         .confirmationDialog("Clear the face history?", isPresented: $confirmClear) {
             Button("Clear \(log.events.count) Entries", role: .destructive) { log.clear() }
         } message: {
             Text("The entries and their pictures will be deleted. People you have already added are kept. This cannot be undone.")
+        }
+    }
+
+    private var emptyTitle: String {
+        switch filter {
+        case .everyone: "No faces yet"
+        case .unknown: "No unknown faces"
+        case .unconfirmed: "Nothing to confirm"
+        }
+    }
+
+    /// The events split by day, keeping their order.
+    private func days(_ events: [SecurityEvent]) -> [(day: Date, events: [SecurityEvent])] {
+        var groups: [(day: Date, events: [SecurityEvent])] = []
+        for event in events {
+            let day = Calendar.current.startOfDay(for: event.date)
+            if groups.last?.day == day {
+                groups[groups.count - 1].events.append(event)
+            } else {
+                groups.append((day, [event]))
+            }
+        }
+        return groups
+    }
+
+    private func title(_ day: Date) -> String {
+        if Calendar.current.isDateInToday(day) { return "Today" }
+        if Calendar.current.isDateInYesterday(day) { return "Yesterday" }
+        return day.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+    }
+}
+
+/// One sighting in the history, with what can be done about it.
+private struct EventRow: View {
+    let event: SecurityEvent
+    @ObservedObject var log: EventLog
+    let show: () -> Void
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Avatar(name: event.name ?? "?", image: log.image(event.face))
+                .overlay(Circle().strokeBorder(event.name == nil ? Color.orange : .white.opacity(0.12), lineWidth: event.name == nil ? 2 : 1))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(event.name ?? "Unknown person").font(.body.weight(.semibold))
+                    .foregroundStyle(event.name == nil ? Color.orange : .primary).lineLimit(1)
+                HStack(spacing: 5) {
+                    Text("\(event.camera) · \(event.date.formatted(.dateTime.hour().minute()))").lineLimit(1)
+                    if event.canConfirm, let confidence = event.confidence {
+                        Text("\(Int((confidence * 100).rounded()))%").monospacedDigit()
+                            .padding(.horizontal, 5).frame(height: 15)
+                            .background(Color.primary.opacity(0.10), in: Capsule())
+                            .help("How sure the match was. Confirm it or say it is wrong")
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            if event.canAdd {
+                Button("Add…") { model.beginLabel(event: event) }
+                    .actionButton().controlSize(.small)
+                    .help("Name this person and add them to People")
+            } else if event.canConfirm {
+                GlassGroup(spacing: 6) { HStack(spacing: 6) {
+                    Button { model.confirmMatch(event) } label: {
+                        Image(systemName: "checkmark").font(.system(size: 11, weight: .bold))
+                            .frame(width: 26, height: 26).glass(Circle(), tint: .green.opacity(0.55), interactive: true)
+                            .contentShape(Circle())
+                    }
+                    .help("That is \(event.name ?? ""). Learn this view of them")
+                    .accessibilityLabel("Confirm match")
+                    Button { model.beginLabel(event: event) } label: {
+                        Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
+                            .frame(width: 26, height: 26).glass(Circle(), interactive: true)
+                            .contentShape(Circle())
+                    }
+                    .help("That is not \(event.name ?? ""). Correct it")
+                    .accessibilityLabel("Wrong person")
+                } }
+                .buttonStyle(.plain)
+            } else if event.added == true {
+                Image(systemName: "person.crop.circle.badge.checkmark").foregroundStyle(.green).help("Added to People from here")
+            } else if event.confirmed == true {
+                Image(systemName: "checkmark.seal.fill").foregroundStyle(.green).help("You confirmed this match")
+            }
+        }
+        .panelCard(accent: event.canConfirm ? .green : nil)
+        .onTapGesture(perform: show)
+        .contextMenu {
+            if event.canAdd {
+                Button("Add to People…", systemImage: "person.crop.circle.badge.plus") { model.beginLabel(event: event) }
+            }
+            if event.canConfirm {
+                Button("That Is Right", systemImage: "checkmark") { model.confirmMatch(event) }
+                Button("Wrong Person…", systemImage: "xmark") { model.beginLabel(event: event) }
+                Button("Nobody I Know", systemImage: "person.fill.questionmark") { model.rejectMatch(event) }
+                Divider()
+            }
+            Button("Show Snapshot", systemImage: "photo", action: show)
         }
     }
 }
@@ -784,33 +1018,44 @@ private struct PeoplePanel: View {
     @State private var renaming: PersonStats?
     @State private var deleting: PersonStats?
     @State private var newName = ""
+    @State private var search = ""
 
     var body: some View {
+        let people = model.people.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
         VStack(spacing: 0) {
             if model.people.isEmpty {
                 ContentUnavailableView {
                     Label("No one yet", systemImage: "person.crop.circle.badge.plus")
                 } description: {
-                    Text("Look at the camera and press A to name yourself. New angles are then learned on their own.")
+                    Text("Add a person with this Mac's camera, or name a face a camera has seen. New angles are then learned on their own.")
+                } actions: {
+                    Button("Add Person…", systemImage: "person.crop.circle.badge.plus") { model.showAddPerson = true }
+                        .actionButton(prominent: true)
                 }
+                .frame(maxHeight: .infinity)
             } else {
-                List {
-                    Section("People · \(model.people.count)") {
-                        ForEach(model.people) { person in
+                SearchField(prompt: "Search people", text: $search)
+                    .padding(.horizontal, 12).padding(.bottom, 8)
+                if people.isEmpty {
+                    ContentUnavailableView.search(text: search).frame(maxHeight: .infinity)
+                } else {
+                    CardList {
+                        ForEach(people) { person in
                             PersonRow(person: person, image: model.avatars[person.name],
                                       rename: { newName = person.name; renaming = person },
                                       delete: { deleting = person })
                         }
                     }
                 }
-                .listStyle(.inset)
-                .scrollContentBackground(.hidden)
             }
-            Divider()
-            Label("Learns new angles while it watches", systemImage: "sparkles")
-                .font(.caption).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14).padding(.vertical, 10)
+            PanelFooter(text: model.people.isEmpty ? "Learns new angles while it watches"
+                              : "\(model.people.count) \(model.people.count == 1 ? "person" : "people") · learning as it watches",
+                        symbol: "sparkles") {
+                if !model.people.isEmpty {
+                    Button("Add", systemImage: "plus") { model.showAddPerson = true }
+                        .actionButton().help("Teach FaceRec a face using a camera on this Mac")
+                }
+            }
         }
         .task {
             // Sample counts and pictures change while the panel is open.
@@ -843,11 +1088,11 @@ struct PersonRow: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             PresenceAvatar(name: person.name, image: image, status: model.status)
             VStack(alignment: .leading, spacing: 3) {
                 Text(person.name).font(.body.weight(.semibold)).lineLimit(1)
-                Text("\(person.samples) samples · \(person.angleCoverage.filter { $0 > 0 }.count) of 9 angles")
+                Text("\(person.samples) views · \(person.angleCoverage.filter { $0 > 0 }.count) of 9 angles")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 4)
@@ -856,15 +1101,15 @@ struct PersonRow: View {
                     Button("Rename…", systemImage: "pencil", action: rename)
                     Button("Delete…", systemImage: "trash", role: .destructive, action: delete)
                 } label: {
-                    Image(systemName: "ellipsis.circle").font(.system(size: 15))
+                    Image(systemName: "ellipsis").font(.system(size: 11, weight: .bold))
+                        .frame(width: 26, height: 26).glass(Circle(), interactive: true)
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                 .help("Rename or delete")
             }
             AngleGrid(coverage: person.angleCoverage)
         }
-        .padding(.vertical, 5)
-        .contentShape(Rectangle())
+        .panelCard()
         .onHover { hovering = $0 }
         .contextMenu {
             Button("Rename…", systemImage: "pencil", action: rename)
@@ -908,37 +1153,59 @@ private struct LabelSheet: View {
                 .overlay(Circle().strokeBorder(.white.opacity(0.15)))
                 .shadow(color: .black.opacity(0.3), radius: 10, y: 4)
             VStack(spacing: 4) {
-                Text("Who is this?").font(.title3.weight(.semibold))
+                Text(request.rejectedName == nil ? "Who is this?" : "Who is it really?").font(.title3.weight(.semibold))
                 Text(subtitle).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
-            TextField("Name", text: $name)
-                .textFieldStyle(.roundedBorder).controlSize(.large)
+            TextField("Name", text: $name, prompt: Text("Their name"))
                 .focused($focused)
                 .onSubmit(commit)
+                .inputField(symbol: "person.fill", large: true)
 
-            let others = model.people.map(\.name).filter { $0 != request.candidate.currentName }
+            let others = model.people.map(\.name).filter { $0 != request.candidate.currentName && $0 != request.rejectedName }
             if !others.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(others, id: \.self) { person in
-                            Button(person) { name = person; commit() }
-                                .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Or someone you already know").font(.caption).foregroundStyle(.secondary)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(others, id: \.self) { person in
+                                Button { name = person; commit() } label: {
+                                    HStack(spacing: 6) {
+                                        Avatar(name: person, image: model.avatars[person], size: 20)
+                                        Text(person).font(.callout.weight(.medium))
+                                    }
+                                    .padding(.leading, 4).padding(.trailing, 10).frame(height: 28)
+                                    .glass(Capsule(), interactive: true)
+                                    .contentShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
+                        .padding(.vertical, 2)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .help("Add this face to someone already known")
             }
             HStack {
-                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel", role: .cancel) { dismiss() }.actionButton().keyboardShortcut(.cancelAction)
                 Spacer()
+                if request.rejectedName != nil, let event = request.event {
+                    Button("Nobody I Know") {
+                        model.rejectMatch(event)
+                        dismiss()
+                    }
+                    .actionButton()
+                    .help("Keep this face in the history as an unknown person")
+                }
                 Button("Save", action: commit)
+                    .actionButton(prominent: true)
                     .keyboardShortcut(.defaultAction)
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .controlSize(.large)
         }
         .padding(24)
-        .frame(width: 340)
+        .frame(width: 380)
         .onAppear {
             model.refreshPeople()
             focused = true
@@ -949,6 +1216,9 @@ private struct LabelSheet: View {
         let views = request.candidate.samples.count
         if let current = request.candidate.currentName {
             return "Recognised as \(current). Type a different name to correct it."
+        }
+        if let wrong = request.rejectedName, let event = request.event {
+            return "FaceRec took this for \(wrong) on \(event.camera). Name the right person and it will forget what misled it."
         }
         if let event = request.event {
             return "Seen on \(event.camera), \(event.date.formatted(date: .abbreviated, time: .shortened)). Naming adds this person to People."
@@ -978,14 +1248,15 @@ private struct EnrolSheet: View {
                 Text("Type a name, then choose photos of that person. Different angles give better accuracy.")
                     .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
-            TextField("Name", text: $name)
-                .textFieldStyle(.roundedBorder).controlSize(.large)
+            TextField("Name", text: $name, prompt: Text("Their name"))
                 .focused($focused)
                 .onSubmit(commit)
+                .inputField(symbol: "person.fill", large: true)
             HStack {
-                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel", role: .cancel) { dismiss() }.actionButton().keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Choose Photos…", action: commit)
+                Button("Choose Photos…", systemImage: "photo.on.rectangle", action: commit)
+                    .actionButton(prominent: true)
                     .keyboardShortcut(.defaultAction)
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }

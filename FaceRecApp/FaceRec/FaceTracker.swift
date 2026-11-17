@@ -170,7 +170,7 @@ final class FaceTrack {
         if let name, nameHits >= 3 {
             guard announcedName != name else { return nil }
             announcedName = name
-            return Sighting(name: name, confidence: confidence, crop: bestCrop?.crop)
+            return Sighting(name: name, confidence: confidence, crop: bestCrop?.crop, samples: labelSamples)
         }
         if name == nil, hits >= 8, !announcedUnknown {
             announcedUnknown = true
@@ -244,7 +244,8 @@ final class FaceTracker {
     /// Returns how many samples were learned, who each face was recognised as,
     /// and anyone who has newly appeared.
     @discardableResult
-    func update(_ faces: [DetectedFace], store: FaceStore?) -> (learned: Int, names: [String?], sightings: [Sighting]) {
+    /// With `learn` false nothing new is stored: faces are only recognised.
+    func update(_ faces: [DetectedFace], store: FaceStore?, learn: Bool = true) -> (learned: Int, names: [String?], sightings: [Sighting]) {
         var names = [String?](repeating: nil, count: faces.count)
         var sightings: [Sighting] = []
         if faces.isEmpty {
@@ -260,7 +261,7 @@ final class FaceTracker {
         for (r, c) in linearSumAssignment(cost) where cost[r][c] <= 1 - Self.iouThreshold {
             let track = tracks[r]
             let face = faces[c]
-            let recognition = store?.recognize(face.sample, matching: track.fuse(face.embedding), autoLearn: true) ?? .unknown
+            let recognition = store?.recognize(face.sample, matching: track.fuse(face.embedding), autoLearn: learn) ?? .unknown
             if recognition.autoLearned { learnedCount += 1 }
             names[c] = recognition.name
 
@@ -270,7 +271,7 @@ final class FaceTracker {
             var learned = false
             var tracked: Int?
             if let store, let name = track.name, recognition.name == nil {
-                switch store.learnFromTrack(name: name, sample: face.sample, keep: track.identityLocked) {
+                switch store.learnFromTrack(name: name, sample: face.sample, keep: learn && track.identityLocked) {
                 case .learned:
                     learned = true
                     learnedCount += 1
@@ -291,7 +292,7 @@ final class FaceTracker {
 
         for (i, t) in tracks.enumerated() where !matchedTracks.contains(i) { t.misses += 1 }
         for (j, face) in faces.enumerated() where !matchedFaces.contains(j) {
-            let recognition = store?.recognize(face.sample, autoLearn: true) ?? .unknown
+            let recognition = store?.recognize(face.sample, autoLearn: learn) ?? .unknown
             if recognition.autoLearned { learnedCount += 1 }
             names[j] = recognition.name
             tracks.append(FaceTrack(FaceResult(face: face, recognition: recognition)))
@@ -299,6 +300,9 @@ final class FaceTracker {
         prune()
         return (learnedCount, names, sightings)
     }
+
+    /// Forgets every face being followed.
+    func reset() { tracks.removeAll() }
 
     func largestConfirmed() -> FaceTrack? {
         tracks.filter(\.confirmed).max { $0.area < $1.area }

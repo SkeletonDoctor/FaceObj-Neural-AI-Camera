@@ -9,6 +9,7 @@ struct CameraDraft: Identifiable {
 
 /// The usual stream addresses of common camera makes.
 enum CameraBrand: String, CaseIterable, Identifiable {
+    case thisMac = "A camera on this Mac"
     case hikvision = "Hikvision"
     case dahua = "Dahua or Amcrest"
     case reolink = "Reolink"
@@ -37,7 +38,7 @@ enum CameraBrand: String, CaseIterable, Identifiable {
         case .tapo: ("/stream1", "/stream2")
         case .axis: ("/axis-media/media.amp", nil)
         case .foscam: ("/videoMain", "/videoSub")
-        case .otherRTSP, .http: ("", nil)
+        case .otherRTSP, .http, .thisMac: ("", nil)
         }
     }
 
@@ -64,6 +65,12 @@ struct CameraEditorSheet: View {
     @State private var lighterStream = true
     @State private var path = ""
     @State private var pasted = ""
+    // A camera on this Mac.
+    @State private var devices: [Camera.Device] = []
+    @State private var deviceID = ""
+    @State private var resolutions: [Camera.Resolution] = []
+    @State private var resolutionID = ""
+    @State private var frameRate = 0
 
     private enum Test: Equatable { case idle, running, passed(String), failed(String) }
     @State private var test = Test.idle
@@ -75,52 +82,85 @@ struct CameraEditorSheet: View {
                 Image(systemName: "video.badge.plus").font(.system(size: 26)).symbolRenderingMode(.hierarchical).foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(draft.isNew ? "Add a camera" : "Edit camera").font(.title3.weight(.semibold))
-                    Text("FaceRec plays the camera's video and recognises the people in it.")
+                    Text("A camera on your network, or one built into or plugged into this Mac.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
             }
 
-            Picker("How to enter it", selection: $entry) {
-                Text("Step by step").tag(Entry.guided)
-                Text("Paste an address").tag(Entry.pasted)
-            }
-            .pickerStyle(.segmented).labelsHidden()
+            PillPicker(selection: $entry, items: [
+                .init(value: .guided, title: "Step by step", symbol: "list.bullet"),
+                .init(value: .pasted, title: "Paste an address", symbol: "link"),
+            ])
 
             Form {
-                TextField("Name", text: $name, prompt: Text("Front door"))
+                LabeledContent("Name") {
+                    TextField("Name", text: $name, prompt: Text("Front door")).labelsHidden().inputField()
+                }
                 if entry == .guided {
-                    Picker("Camera make", selection: $brand) {
-                        ForEach(CameraBrand.allCases) { Text($0.rawValue).tag($0) }
+                    Picker("Kind of camera", selection: $brand) {
+                        Text(CameraBrand.thisMac.rawValue).tag(CameraBrand.thisMac)
+                        Divider()
+                        ForEach(CameraBrand.allCases.filter { $0 != .thisMac }) { Text($0.rawValue).tag($0) }
                     }
+                    if brand == .thisMac {
+                        Picker("Camera", selection: $deviceID) {
+                            if devices.isEmpty { Text("No camera found").tag("") }
+                            ForEach(devices) { Text($0.name).tag($0.id) }
+                        }
+                        Picker("Resolution", selection: $resolutionID) {
+                            Text("Automatic").tag("")
+                            ForEach(resolutions) { Text($0.label).tag($0.id) }
+                        }
+                        if let rates = resolutions.first(where: { $0.id == resolutionID })?.frameRates, !rates.isEmpty {
+                            Picker("Frames per second", selection: $frameRate) {
+                                ForEach(rates, id: \.self) { Text(String($0)).tag($0) }
+                            }
+                        }
+                    } else {
                     LabeledContent("Address") {
                         HStack(spacing: 6) {
-                            TextField("Address", text: $host, prompt: Text("192.168.1.20")).labelsHidden()
+                            TextField("Address", text: $host, prompt: Text("192.168.1.20")).labelsHidden().inputField()
                             Text("Port").foregroundStyle(.secondary)
-                            TextField("Port", text: $port, prompt: Text(String(brand.defaultPort))).labelsHidden().frame(width: 62)
+                            TextField("Port", text: $port, prompt: Text(String(brand.defaultPort))).labelsHidden().inputField().frame(width: 76)
                         }
                     }
-                    TextField("User name", text: $user, prompt: Text("Leave empty if none"))
-                    SecureField("Password", text: $password, prompt: Text("Leave empty if none"))
+                    LabeledContent("User name") {
+                        TextField("User name", text: $user, prompt: Text("Leave empty if none")).labelsHidden().inputField(symbol: "person")
+                    }
+                    LabeledContent("Password") {
+                        SecureField("Password", text: $password, prompt: Text("Leave empty if none")).labelsHidden().inputField(symbol: "lock")
+                    }
                     if brand.paths.sub != nil {
                         Picker("Stream", selection: $lighterStream) {
                             Text("Lighter stream (recommended)").tag(true)
                             Text("Full resolution").tag(false)
                         }
                     } else {
-                        TextField("Path", text: $path, prompt: Text(brand.pathPrompt))
+                        LabeledContent("Path") {
+                            TextField("Path", text: $path, prompt: Text(brand.pathPrompt)).labelsHidden().inputField()
+                        }
+                    }
                     }
                 } else {
-                    TextField("Address", text: $pasted, prompt: Text("rtsp://user:password@192.168.1.20:554/stream1"))
+                    LabeledContent("Address") {
+                        TextField("Address", text: $pasted, prompt: Text("rtsp://user:password@192.168.1.20:554/stream1"))
+                            .labelsHidden().inputField(symbol: "link")
+                    }
                 }
             }
+            .controlSize(.large)
             .autocorrectionDisabled()
 
             if entry == .guided {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(address.isEmpty ? "Fill in the camera's address to continue." : StreamSources.masked(address))
+                    Text(address.isEmpty ? (brand == .thisMac ? "Choose a camera to continue." : "Fill in the camera's address to continue.")
+                         : StreamSources.masked(address))
                         .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
-                    if brand.paths.sub != nil || brand == .axis {
+                    if brand == .thisMac {
+                        Text("To teach FaceRec a face, use Add Person instead; this adds the camera to the security grid.")
+                            .font(.caption).foregroundStyle(.tertiary)
+                    } else if brand.paths.sub != nil || brand == .axis {
                         Text("This is the usual address for \(brand.rawValue) cameras; some models differ.")
                             .font(.caption).foregroundStyle(.tertiary)
                     }
@@ -133,10 +173,12 @@ struct CameraEditorSheet: View {
             previewBox
 
             HStack {
-                Button("Test Connection") { runTest() }.disabled(test == .running || !isValid)
+                Button("Test Connection", systemImage: "dot.radiowaves.left.and.right") { runTest() }
+                    .actionButton().disabled(test == .running || !isValid)
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel", role: .cancel) { dismiss() }.actionButton().keyboardShortcut(.cancelAction)
                 Button(draft.isNew ? "Add Camera" : "Save") { commit() }
+                    .actionButton(prominent: true)
                     .keyboardShortcut(.defaultAction).disabled(!isValid)
             }
             .controlSize(.large)
@@ -147,6 +189,11 @@ struct CameraEditorSheet: View {
         .onChange(of: address) { _, _ in
             test = .idle
             preview = nil
+        }
+        .onChange(of: deviceID) { _, _ in loadResolutions(keep: false) }
+        .onChange(of: resolutionID) { _, _ in
+            let rates = resolutions.first { $0.id == resolutionID }?.frameRates ?? []
+            if !rates.contains(frameRate) { frameRate = rates.last { $0 <= 30 } ?? rates.first ?? 0 }
         }
     }
 
@@ -171,8 +218,9 @@ struct CameraEditorSheet: View {
                     Spacer()
                     Label(message, systemImage: "checkmark.circle.fill")
                         .font(.callout.weight(.medium)).foregroundStyle(.white)
-                        .padding(.horizontal, 10).frame(height: 26)
-                        .background(.black.opacity(0.65), in: Capsule())
+                        .padding(.horizontal, 11).frame(height: 28)
+                        .glass(Capsule())
+                        .environment(\.colorScheme, .dark)
                         .padding(8)
                 }
             case .failed(let message):
@@ -192,6 +240,12 @@ struct CameraEditorSheet: View {
     /// The full address built from the fields, or the pasted one.
     private var address: String {
         if entry == .pasted { return pasted.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if brand == .thisMac {
+            guard !deviceID.isEmpty else { return "" }
+            let size = resolutions.first { $0.id == resolutionID }
+            let mode = size.flatMap { s in frameRate > 0 ? Camera.Mode(width: s.width, height: s.height, fps: frameRate) : nil }
+            return DeviceSource.address(deviceID: deviceID, mode: mode)
+        }
         let trimmedHost = host.trimmingCharacters(in: .whitespaces)
         guard !trimmedHost.isEmpty else { return "" }
         var parts = URLComponents()
@@ -221,9 +275,26 @@ struct CameraEditorSheet: View {
     private var isValid: Bool { StreamSources.make(address) != nil }
 
     /// Editing starts from the saved address; new cameras start step by step.
+    private func loadResolutions(keep: Bool) {
+        resolutions = deviceID.isEmpty ? [] : Camera.resolutions(deviceID: deviceID)
+        if !keep || !resolutions.contains(where: { $0.id == resolutionID }) { resolutionID = "" }
+    }
+
     private func load() {
         name = draft.camera.name
+        devices = Camera.devices()
+        deviceID = devices.first { $0.id == Camera.defaultDeviceID }?.id ?? devices.first?.id ?? ""
+        loadResolutions(keep: false)
         guard !draft.isNew else { return }
+        if draft.camera.isDevice, let url = URLComponents(string: draft.camera.address) {
+            func value(_ name: String) -> String? { url.queryItems?.first { $0.name == name }?.value }
+            brand = .thisMac
+            deviceID = value("id") ?? deviceID
+            resolutions = Camera.resolutions(deviceID: deviceID)
+            if let w = value("w"), let h = value("h") { resolutionID = "\(w)x\(h)" }
+            frameRate = value("fps").flatMap(Int.init) ?? 0
+            return
+        }
         entry = .pasted
         pasted = draft.camera.address
         if let parts = URLComponents(string: draft.camera.address) {
@@ -256,7 +327,8 @@ struct CameraEditorSheet: View {
         var saved = draft.camera
         saved.address = address
         let typed = name.trimmingCharacters(in: .whitespaces)
-        saved.name = typed.isEmpty ? (URL(string: address)?.host ?? "Camera") : typed
+        let fallback = brand == .thisMac && entry == .guided ? devices.first { $0.id == deviceID }?.name : URL(string: address)?.host
+        saved.name = typed.isEmpty ? (fallback ?? "Camera") : typed
         save(saved)
         dismiss()
     }

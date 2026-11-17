@@ -1,12 +1,15 @@
 import Foundation
 import SwiftUI
 
-/// A network camera the user added in Settings.
+/// A camera the user added: a network camera, or a camera on this Mac.
 struct NetworkCamera: Codable, Identifiable, Equatable {
     var id = UUID()
     var name: String
-    var address: String        // rtsp://, rtsps://, http:// or https://, may include a user name and password
+    /// rtsp://, rtsps://, http:// or https:// (may include a user name and password), or device:// for a camera on this Mac.
+    var address: String
     var enabled = true
+
+    var isDevice: Bool { address.hasPrefix(DeviceSource.scheme + ":") }
 }
 
 /// Saves the camera list beside the face database. Addresses can contain
@@ -29,12 +32,13 @@ enum NetworkCameraStore {
     }
 }
 
-/// One camera on screen: the Mac's own, or a network camera.
+/// One camera on screen.
 @MainActor
 final class FeedModel: ObservableObject, Identifiable {
     let id: String
     let feed: Feed
-    let isLocal: Bool
+    /// A camera on this Mac, as opposed to one on the network.
+    let isDevice: Bool
     let overlay = OverlayModel()
     let status = StatusModel()
     @Published var name: String
@@ -42,12 +46,12 @@ final class FeedModel: ObservableObject, Identifiable {
     var source: StreamSource?
     var address = ""
 
-    init(feed: Feed, name: String, isLocal: Bool) {
+    init(feed: Feed, name: String, isDevice: Bool) {
         id = feed.id
         self.feed = feed
         self.name = name
-        self.isLocal = isLocal
-        connection = isLocal ? .live : .connecting
+        self.isDevice = isDevice
+        connection = .connecting
         let overlay = overlay, status = status
         feed.onOverlay = { state in
             MainActor.assumeIsolated {

@@ -101,7 +101,12 @@ struct FaceRecApp: App {
         }
         .defaultSize(width: 1280, height: 760)
         .commands {
-            CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .newItem) { AddMenuItems(model: model, shortcuts: true) }
+            CommandMenu("Neural") { NeuralMenuItems(model: model) }
+            CommandGroup(before: .toolbar) {
+                ViewMenuItems(model: model, shortcuts: true)
+                Divider()
+            }
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") { model.checkForUpdates() }
             }
