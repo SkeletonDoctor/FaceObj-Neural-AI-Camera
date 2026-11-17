@@ -10,7 +10,6 @@ struct Box: Equatable, Sendable {
 
     var width: Int { x2 - x1 }
     var height: Int { y2 - y1 }
-    var cgRect: CGRect { CGRect(x: x1, y: y1, width: width, height: height) }
 }
 
 func iou(_ a: Box, _ b: Box) -> Double {
