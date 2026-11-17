@@ -19,13 +19,13 @@ protocol StreamSource: AnyObject {
 
 enum StreamSources {
     /// The address forms the app can play.
-    static let help = "rtsp://user:password@192.168.1.20:554/stream1  ·  http://192.168.1.21/video.mjpg  ·  http://192.168.1.22/snapshot.jpg"
+    static let help = "rtsp://user:password@192.168.1.20:554/stream1  ·  https://example.com/live/stream.m3u8  ·  http://192.168.1.21/video.mjpg  ·  http://192.168.1.22/snapshot.jpg"
 
     static func make(_ address: String) -> StreamSource? {
         guard let url = URL(string: address.trimmingCharacters(in: .whitespacesAndNewlines)), url.host != nil else { return nil }
         switch url.scheme?.lowercased() {
         case "rtsp", "rtsps": return RTSPSource(url: url)
-        case "http", "https": return HTTPCameraSource(url: url)
+        case "http", "https": return HLSSource.handles(url) ? HLSSource(url: url) : HTTPCameraSource(url: url)
         default: return nil
         }
     }
