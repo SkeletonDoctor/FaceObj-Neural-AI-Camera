@@ -60,6 +60,7 @@ In Security mode, add IP cameras with **Add Camera** (in the toolbar, or the das
 | Address | What it is |
 |---|---|
 | `rtsp://user:password@192.168.1.20:554/stream1` | RTSP camera, H.264 or H.265, decoded in hardware. `rtsps://` (TLS) also works |
+| `https://example.com/live/stream.m3u8` | HLS stream, as used by most public webcam sites and cloud cameras. Runs several seconds behind live |
 | `http://192.168.1.21/video.mjpg` | Motion-JPEG stream over HTTP |
 | `http://192.168.1.22/snapshot.jpg` | Still-picture address, fetched about twice a second |
 
@@ -112,7 +113,7 @@ Video never leaves the Mac. The one exception is opt-in: if you turn on ntfy, Te
 | Stage | How it runs |
 |---|---|
 | Camera | AVFoundation, mirrored, at the resolution and frame rate you pick |
-| Network cameras | Native RTSP client with VideoToolbox hardware decoding; Motion-JPEG and stills over HTTP |
+| Network cameras | Native RTSP client with VideoToolbox hardware decoding; HLS through AVPlayer; Motion-JPEG and stills over HTTP |
 | Video display | Metal, each frame drawn as it arrives, camera buffers wrapped as textures without copying |
 | Face detection + landmarks | Vision |
 | Face embedding | FaceNet (InceptionResnetV1, VGGFace2) on Core ML |

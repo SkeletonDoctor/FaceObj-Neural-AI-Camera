@@ -16,7 +16,7 @@ enum CameraBrand: String, CaseIterable, Identifiable {
     case axis = "Axis"
     case foscam = "Foscam"
     case otherRTSP = "Other RTSP camera"
-    case http = "HTTP camera (MJPEG or snapshot)"
+    case http = "HTTP camera (HLS, MJPEG or snapshot)"
 
     var id: String { rawValue }
     var isHTTP: Bool { self == .http }
@@ -126,7 +126,7 @@ struct CameraEditorSheet: View {
                     }
                 }
             } else {
-                Text("RTSP (H.264 or H.265), Motion-JPEG over HTTP, or a still-picture address. A user name and password go inside the address.")
+                Text("RTSP (H.264 or H.265), an HLS stream (.m3u8), Motion-JPEG over HTTP, or a still-picture address. A user name and password go inside the address.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
 
