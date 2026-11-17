@@ -8,7 +8,7 @@ enum ModelError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missing(let name): "The \(name) model is missing from this copy of FaceRec."
+        case .missing(let name): "The \(name) model is missing from this copy of Neural Sentry."
         case .badOutput(let name): "\(name) returned an unexpected output."
         }
     }
@@ -38,7 +38,7 @@ final class FaceAnalyzer {
     ]
 
     /// Tuning knobs. The defaults are the values that scored best on the LFW benchmark
-    /// (see `FaceRec --benchmark`).
+    /// (see `"Neural Sentry" --benchmark`).
     struct Options {
         /// Also embed a mirrored copy of each face and average the two. Costs one
         /// extra network run per face (batched) and makes embeddings steadier.

@@ -3,8 +3,8 @@ import Foundation
 
 /// Checks of the object tracker.
 ///
-///   FaceRec --object-test                     simulated cases only
-///   FaceRec --object-test <address> [seconds] also measures flicker on a live camera
+///   "Neural Sentry" --object-test                     simulated cases only
+///   "Neural Sentry" --object-test <address> [seconds] also measures flicker on a live camera
 enum ObjectTest {
     static func run(_ arguments: [String]) {
         simulated()

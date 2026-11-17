@@ -2,7 +2,7 @@ import AVFoundation
 import AppKit
 import Foundation
 
-/// `FaceRec --record-test <address> <seconds> <folder>` records a network camera
+/// `"Neural Sentry" --record-test <address> <seconds> <folder>` records a network camera
 /// with object detection on, then reads the file back and saves one of its frames.
 enum RecordTest {
     /// The rules for what starts a recording, checked without any video.

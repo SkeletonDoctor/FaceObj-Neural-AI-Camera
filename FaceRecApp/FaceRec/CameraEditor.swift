@@ -158,7 +158,7 @@ struct CameraEditorSheet: View {
                         .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                     if brand == .thisMac {
-                        Text("To teach FaceRec a face, use Add Person instead; this adds the camera to the security grid.")
+                        Text("To teach Neural Sentry a face, use Add Person instead; this adds the camera to the security grid.")
                             .font(.caption).foregroundStyle(.tertiary)
                     } else if brand.paths.sub != nil || brand == .axis {
                         Text("This is the usual address for \(brand.rawValue) cameras; some models differ.")

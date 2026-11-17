@@ -54,7 +54,7 @@ enum ModelStore {
     /// Makes sure there are models to load, downloading them if this copy has none.
     static func ensureAvailable(progress: @escaping @Sendable (Double) -> Void) async throws {
         if currentVersion > 0 { return }
-        let missing = UpdateError("The neural networks are not in this copy of FaceRec and could not be downloaded. Check the internet connection and reopen the app.")
+        let missing = UpdateError("The neural networks are not in this copy of Neural Sentry and could not be downloaded. Check the internet connection and reopen the app.")
         guard let models = (try? await ReleaseFeed.latest())?.models else { throw missing }
         try await install(version: models.version, files: models.files, progress: progress)
     }

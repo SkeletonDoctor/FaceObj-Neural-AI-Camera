@@ -84,7 +84,7 @@ struct MetalVideoView: NSViewRepresentable {
                 descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
                 pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
             } catch {
-                NSLog("FaceRec: Metal setup failed: \(error)")
+                NSLog("Neural Sentry: Metal setup failed: \(error)")
             }
         }
 

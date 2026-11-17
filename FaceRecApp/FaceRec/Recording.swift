@@ -36,8 +36,13 @@ struct RecordingSettings: Equatable, Sendable {
     /// How long to keep recording after the last trigger left the view.
     var tailSeconds = 5.0
 
+    /// `Movies/Neural Sentry`, or `Movies/FaceRec` (the app's name until 1.9) when
+    /// that folder already holds someone's recordings.
     static var defaultFolder: URL {
-        FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask)[0].appendingPathComponent("FaceRec", isDirectory: true)
+        let movies = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask)[0]
+        let old = movies.appendingPathComponent("FaceRec", isDirectory: true)
+        if FileManager.default.fileExists(atPath: old.path) { return old }
+        return movies.appendingPathComponent("Neural Sentry", isDirectory: true)
     }
 
     static func load() -> RecordingSettings {
@@ -247,7 +252,7 @@ final class FeedRecorder: @unchecked Sendable {
             lastTime = time
             lastFrame = date
         } else if writer?.status == .failed {
-            NSLog("FaceRec: recording \(camera) failed: \(writer?.error?.localizedDescription ?? "unknown error")")
+            NSLog("Neural Sentry: recording \(camera) failed: \(writer?.error?.localizedDescription ?? "unknown error")")
             finishSegment(nil)
         }
     }
@@ -286,7 +291,7 @@ final class FeedRecorder: @unchecked Sendable {
             guard writer.canAdd(input) else { return false }
             writer.add(input)
             guard writer.startWriting() else {
-                NSLog("FaceRec: cannot start recording \(camera): \(writer.error?.localizedDescription ?? "unknown error")")
+                NSLog("Neural Sentry: cannot start recording \(camera): \(writer.error?.localizedDescription ?? "unknown error")")
                 return false
             }
             writer.startSession(atSourceTime: .zero)
@@ -301,7 +306,7 @@ final class FeedRecorder: @unchecked Sendable {
             RecordingLibrary.prune(folder: settings.folder, limitGB: settings.limitGB, keep: [url])
             return true
         } catch {
-            NSLog("FaceRec: cannot record \(camera): \(error.localizedDescription)")
+            NSLog("Neural Sentry: cannot record \(camera): \(error.localizedDescription)")
             return false
         }
     }

@@ -3,7 +3,7 @@ import Foundation
 
 /// Measures recognition accuracy on labelled face pairs.
 ///
-///   FaceRec --benchmark pairs.tsv [--no-flip] [--scale 1.0] [--shift 0] [--limit N]
+///   "Neural Sentry" --benchmark pairs.tsv [--no-flip] [--scale 1.0] [--shift 0] [--limit N]
 ///
 /// Each line of the file is: imageA <tab> imageB <tab> 1 (same person) or 0 (different).
 /// Every image goes through the app's own detector, alignment and embedding.

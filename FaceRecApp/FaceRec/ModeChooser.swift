@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The first-launch introduction: what FaceRec is and the two things to do first.
+/// The first-launch introduction: what Neural Sentry is and the two things to do first.
 struct WelcomeSheet: View {
     @EnvironmentObject private var model: AppModel
 
@@ -9,7 +9,7 @@ struct WelcomeSheet: View {
             VStack(spacing: 6) {
                 Image(systemName: "shield.lefthalf.filled").font(.system(size: 34)).foregroundStyle(.green)
                 Text("A neural security system for your cameras").font(.title2.weight(.semibold))
-                Text("FaceRec watches the cameras you add, recognises the people you have taught it, and tells you about everyone else. Everything runs on this Mac.")
+                Text("Neural Sentry watches the cameras you add, recognises the people you have taught it, and tells you about everyone else. Everything runs on this Mac.")
                     .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
             HStack(spacing: 14) {

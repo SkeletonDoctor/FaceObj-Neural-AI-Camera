@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds FaceRec.app (Release) into build/.
+# Builds "Neural Sentry.app" (Release) into build/.
 # If an "Apple Development" certificate is in the keychain it is used, so macOS
 # remembers the camera permission between builds. Without one the app is signed
 # to run locally and macOS asks for the camera again after every rebuild.
@@ -12,4 +12,4 @@ if [ -n "$IDENTITY" ]; then
 fi
 xcodebuild -project FaceRec.xcodeproj -scheme FaceRec -configuration Release \
     -derivedDataPath build "${SIGNING[@]}" build | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
-echo "App: $(pwd)/build/Build/Products/Release/FaceRec.app"
+echo "App: $(pwd)/build/Build/Products/Release/Neural Sentry.app"

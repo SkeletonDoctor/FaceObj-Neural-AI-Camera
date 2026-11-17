@@ -293,7 +293,7 @@ final class DeviceSource: StreamSource, @unchecked Sendable {
             self.queue.async {
                 guard !self.stopped else { return }
                 guard granted else {
-                    self.onStatus?(.failed("Camera access is off for FaceRec. Turn it on in System Settings › Privacy & Security › Camera."))
+                    self.onStatus?(.failed("Camera access is off for Neural Sentry. Turn it on in System Settings › Privacy & Security › Camera."))
                     return
                 }
                 self.camera.onFrame = { [weak self] frame in

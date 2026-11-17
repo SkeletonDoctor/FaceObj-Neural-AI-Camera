@@ -223,7 +223,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 
-    /// Show alerts even while FaceRec is the app in front.
+    /// Show alerts even while Neural Sentry is the app in front.
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async
         -> UNNotificationPresentationOptions { [.banner, .sound, .list] }
 }

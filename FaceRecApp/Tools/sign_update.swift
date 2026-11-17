@@ -1,4 +1,4 @@
-// Signs release archives so installed copies of FaceRec can verify an update really came from
+// Signs release archives so installed copies of Neural Sentry can verify an update really came from
 // the maintainer before installing it (Ed25519, via CryptoKit).
 //
 //   swift Tools/sign_update.swift keygen        create the private key (once) and print the public key

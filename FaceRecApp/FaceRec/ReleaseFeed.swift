@@ -31,8 +31,10 @@ struct ReleaseInfo: Equatable, Sendable {
 /// does not verify against `publicKey` is discarded. Forks: change
 /// `repository` and `publicKey`.
 enum ReleaseFeed {
-    static let repository = "SkeletonDoctor/FaceObj-Neural-AI-Camera"
+    static let repository = "SkeletonDoctor/Neural-Sentry-AI-Camera-Security"
     static let publicKey = "n4xF9IR/LZy41bKlbZQjjD28KufkA6ccmLsF8Lnlf58="
+    /// The app was called FaceRec until 1.9. The archive keeps that name so that
+    /// copies installed before the rename still find their update.
     static let appArchive = "FaceRec.zip"
 
     static var releasesPage: URL { URL(string: "https://github.com/\(repository)/releases")! }
