@@ -41,6 +41,9 @@ final class StatusModel: ObservableObject {
 struct LabelRequest: Identifiable {
     let id = UUID()
     let candidate: Engine.Candidate
+    /// Set when naming a face from the history rather than from live video.
+    var event: SecurityEvent?
+    var picture: NSImage?
 }
 
 struct Notice: Identifiable {
@@ -87,6 +90,41 @@ final class AppModel: ObservableObject {
     @Published var keepAwake: Bool = UserDefaults.standard.object(forKey: "keepAwake") as? Bool ?? true {
         didSet { UserDefaults.standard.set(keepAwake, forKey: "keepAwake"); updateKeepAwake() }
     }
+    /// In security mode, also watch this Mac's own camera.
+    @Published var includeMacCamera: Bool = UserDefaults.standard.bool(forKey: "includeMacCamera") {
+        didSet {
+            guard includeMacCamera != oldValue else { return }
+            UserDefaults.standard.set(includeMacCamera, forKey: "includeMacCamera")
+            Task { await applyCameraMode() }
+        }
+    }
+    /// The first-launch question: this Mac, or security?
+    @Published var showModeChooser = false
+    /// The add/edit camera sheet in the main window.
+    @Published var cameraDraft: CameraDraft?
+
+    // MARK: Objects
+
+    /// Kinds of object the user chose not to see.
+    @Published var hiddenObjects: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "hiddenObjects") ?? []) {
+        didSet {
+            UserDefaults.standard.set(hiddenObjects.sorted(), forKey: "hiddenObjects")
+            pushObjectFilter()
+        }
+    }
+    /// How sure the detector must be before an object is shown (0.25...0.90).
+    @Published var objectConfidence: Double = UserDefaults.standard.object(forKey: "objectConfidence") as? Double
+        ?? Double(ObjectDetector.defaultConfidence) {
+        didSet {
+            UserDefaults.standard.set(objectConfidence, forKey: "objectConfidence")
+            pushObjectFilter()
+        }
+    }
+
+    private func pushObjectFilter() {
+        engine?.setObjectFilter(hidden: hiddenObjects, confidence: Float(objectConfidence))
+    }
+
     /// Events that arrived since the Events panel was last looked at.
     @Published var unseenEvents = 0
     private var awakeToken: NSObjectProtocol?
@@ -134,8 +172,9 @@ final class AppModel: ObservableObject {
                 Task { @MainActor in await AppModel.shared.handle(report) }
             }
             self.engine = engine
+            pushObjectFilter()
             networkCameras = NetworkCameraStore.load()
-            reconcileNetworkCameras()
+            if !UserDefaults.standard.bool(forKey: "modeChosen") { showModeChooser = true }
             Updater.shared.start()
             refreshPeople()
             await applyCameraMode()
@@ -191,16 +230,15 @@ final class AppModel: ObservableObject {
     /// Turns this Mac's own camera on (normal) or off (security mode).
     private func applyCameraMode() async {
         guard let engine else { return }
-        if securityMode {
+        let wantsMac = !securityMode || includeMacCamera
+        if !wantsMac {
             engine.camera.stop()
             engine.local.frames.set(nil)
             feeds.removeAll(where: \.isLocal)
-            if !feeds.contains(where: { $0.id == selectedFeedID }), let first = feeds.first { selectedFeedID = first.id }
         } else if !feeds.contains(where: \.isLocal) {
             if await AVCaptureDevice.requestAccess(for: .video) {
-                guard !securityMode else { return }
+                guard !securityMode || includeMacCamera else { return }
                 feeds.insert(FeedModel(feed: engine.local, name: "This Mac", isLocal: true), at: 0)
-                selectedFeedID = Feed.localID
                 cameras = Camera.devices()
                 let saved = UserDefaults.standard.string(forKey: "cameraID")
                 selectCamera(cameras.contains { $0.id == saved } ? saved : Camera.defaultDeviceID)
@@ -208,7 +246,15 @@ final class AppModel: ObservableObject {
                 notice = Notice(title: "Camera access is off", message: "To use this Mac's camera, turn FaceRec on in System Settings › Privacy & Security › Camera. Network cameras work without it.")
             }
         }
-        updateKeepAwake()
+        reconcileNetworkCameras()
+        if !securityMode { selectedFeedID = Feed.localID }
+    }
+
+    /// Picks how FaceRec is used; called by the welcome sheet and the toolbar switch.
+    func setMode(security: Bool) {
+        UserDefaults.standard.set(true, forKey: "modeChosen")
+        showModeChooser = false
+        securityMode = security
     }
 
     /// While watching network cameras, stop the Mac from sleeping or napping the app.
@@ -232,11 +278,20 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Someone appeared on a network camera: log it and, if asked, alert.
+    /// Names an unknown face from the history, adding the person to People.
+    func beginLabel(event: SecurityEvent) {
+        let samples = eventLog.samples(event)
+        guard event.name == nil, !samples.isEmpty else { return }
+        labelRequest = LabelRequest(candidate: Engine.Candidate(currentName: nil, samples: samples),
+                                    event: event, picture: eventLog.image(event.face))
+    }
+
+    /// Someone appeared on a camera: add it to the history and, if asked, alert.
     private func handle(_ report: SightingReport) async {
         guard let camera = feeds.first(where: { $0.id == report.feedID })?.name else { return }
         let event = await eventLog.record(report, camera: camera)
         unseenEvents += 1
+        guard report.feedID != Feed.localID else { return }     // alerts are for network cameras
         if let name = event.name {
             if notifyKnown { Notifier.shared.post(title: name, body: "Seen on \(camera)", picture: eventLog.url(event.face)) }
         } else if notifyUnknown {
@@ -255,7 +310,8 @@ final class AppModel: ObservableObject {
 
     private func reconcileNetworkCameras() {
         guard let engine else { return }
-        let wanted = networkCameras.filter(\.enabled)
+        // Network cameras are connected only in security mode.
+        let wanted = securityMode ? networkCameras.filter(\.enabled) : []
         // Drop cameras that were removed, switched off, or given a new address.
         for model in feeds where !model.isLocal {
             if let camera = wanted.first(where: { $0.id.uuidString == model.id }), camera.address == model.address {
@@ -292,10 +348,43 @@ final class AppModel: ObservableObject {
         updateKeepAwake()
     }
 
+    // Camera editing from the main window.
+
+    func addCamera() { cameraDraft = CameraDraft(camera: NetworkCamera(name: "", address: ""), isNew: true) }
+
+    func editCamera(id: String) {
+        guard let camera = networkCameras.first(where: { $0.id.uuidString == id }) else { return }
+        cameraDraft = CameraDraft(camera: camera, isNew: false)
+    }
+
+    /// Adds a new camera or replaces the one with the same id.
+    func saveCamera(_ camera: NetworkCamera) {
+        var cameras = networkCameras
+        if let index = cameras.firstIndex(where: { $0.id == camera.id }) { cameras[index] = camera } else { cameras.append(camera) }
+        setNetworkCameras(cameras)
+    }
+
+    func setCamera(id: String, enabled: Bool) {
+        var cameras = networkCameras
+        guard let index = cameras.firstIndex(where: { $0.id.uuidString == id }) else { return }
+        cameras[index].enabled = enabled
+        setNetworkCameras(cameras)
+    }
+
+    func removeCamera(id: String) {
+        setNetworkCameras(networkCameras.filter { $0.id.uuidString != id })
+    }
+
+    struct CameraTest: Sendable {
+        var ok: Bool
+        var message: String
+        var picture: FaceCrop?      // the first frame, for a preview
+    }
+
     /// Tries an address for a few seconds and says what happened.
-    func testCamera(_ address: String) async -> String {
+    func testCamera(_ address: String) async -> CameraTest {
         guard let source = StreamSources.make(address) else {
-            return "This is not an address FaceRec can play. It should start with rtsp://, rtsps://, http:// or https://."
+            return CameraTest(ok: false, message: "This is not an address FaceRec can play. It should start with rtsp://, rtsps://, http:// or https://.")
         }
         final class Outcome: @unchecked Sendable {
             let lock = NSLock()
@@ -304,18 +393,19 @@ final class AppModel: ObservableObject {
         }
         let outcome = Outcome()
         return await withCheckedContinuation { continuation in
-            @Sendable func finish(_ message: String?) {
-                let text: String? = outcome.lock.withLock {
+            @Sendable func finish(_ success: CameraTest?) {
+                let result: CameraTest? = outcome.lock.withLock {
                     if outcome.answered { return nil }
                     outcome.answered = true
-                    return message ?? outcome.lastFailure
+                    return success ?? CameraTest(ok: false, message: outcome.lastFailure)
                 }
-                guard let text else { return }
+                guard let result else { return }
                 source.stop()
-                continuation.resume(returning: text)
+                continuation.resume(returning: result)
             }
             source.onFrame = { frame in
-                finish("Connected: \(CVPixelBufferGetWidth(frame)) × \(CVPixelBufferGetHeight(frame)) video.")
+                finish(CameraTest(ok: true, message: "Connected · \(CVPixelBufferGetWidth(frame)) × \(CVPixelBufferGetHeight(frame))",
+                                  picture: FaceCrop(buffer: frame)))
             }
             source.onStatus = { status in
                 if case .failed(let message) = status { outcome.lock.withLock { outcome.lastFailure = message } }
@@ -347,6 +437,18 @@ final class AppModel: ObservableObject {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, let engine else { return }
         let views = engine.label(request.candidate, as: name)
+        if let event = request.event {
+            if let picture = eventLog.url(event.face) { engine.avatars.adopt(name: name, picture: picture) }
+            // Other unknown history entries of the same person get the name too.
+            let store = engine.store
+            let renamed = eventLog.name(event.id, as: name) { samples in
+                guard let first = samples.first else { return false }
+                return store.recognize(first, autoLearn: false).name == name
+            }
+            refreshPeople()
+            show(renamed > 1 ? "Added \(name) and named \(renamed) history entries" : "Added \(name) to People")
+            return
+        }
         refreshPeople()
         show(views > 1 ? "Saved as \(name) (\(views) views)" : "Saved as \(name)")
     }

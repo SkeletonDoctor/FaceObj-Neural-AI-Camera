@@ -103,8 +103,11 @@ final class Engine: @unchecked Sendable {
     private var lastSave = Date()
     private var patience: TimeInterval = 1
     private var lastSighting: [String: Date] = [:]
+    private var hiddenObjects: Set<String> = []
+    private var objectConfidence = ObjectDetector.defaultConfidence
 
-    /// Called (on the face queue) when someone appears on a network camera.
+    /// Called (on the face queue) when someone appears: anyone on a network
+    /// camera, and unknown faces on the Mac's own camera.
     var onSighting: (@Sendable (SightingReport) -> Void)?
     /// The same person on the same camera is not reported again within this long.
     static let knownCooldown: TimeInterval = 120
@@ -131,6 +134,21 @@ final class Engine: @unchecked Sendable {
                 return feeds
             }
             if !newValue { all.forEach { feed in feed.lock.withLock { feed.objects = [] } } }
+        }
+    }
+
+    /// Which kinds of object to leave out, and how sure the detector must be to show one.
+    func setObjectFilter(hidden: Set<String>, confidence: Float) {
+        let all: [Feed] = schedule.withLock {
+            hiddenObjects = hidden
+            objectConfidence = confidence
+            return feeds
+        }
+        // Apply to what is on screen now, without waiting for the next detection.
+        for feed in all {
+            feed.lock.withLock {
+                feed.objects.removeAll { hidden.contains($0.label) || $0.confidence < confidence }
+            }
         }
     }
 
@@ -266,13 +284,13 @@ final class Engine: @unchecked Sendable {
             return feed.tracker.update(faces, store: store)
         }
         if outcome.learned > 0 { schedule.withLock { learnedCount += outcome.learned } }
-        if !feed.isLive, let onSighting {
+        if let onSighting {
             let now = Date()
             // Decide per person, once for this frame, so two strangers who walk in
             // together are both logged while a lingering one is not logged repeatedly.
             let fresh: Set<String> = schedule.withLock {
                 var keys = Set<String>()
-                for sighting in outcome.sightings {
+                for sighting in outcome.sightings where !feed.isLive || sighting.name == nil {
                     let key = feed.id + "|" + (sighting.name ?? "")
                     let cooldown = sighting.name == nil ? Self.unknownCooldown : Self.knownCooldown
                     if let last = lastSighting[key], now.timeIntervalSince(last) < cooldown { continue }
@@ -294,8 +312,10 @@ final class Engine: @unchecked Sendable {
     }
 
     private func detectObjects(_ frame: CVPixelBuffer, _ feed: Feed) {
-        guard let found = try? objectDetector.detect(frame), objectsEnabled else { return }
-        feed.lock.withLock { feed.objects = found }
+        let (hidden, confidence, on) = schedule.withLock { (hiddenObjects, objectConfidence, objectsOn) }
+        guard on, let found = try? objectDetector.detect(frame, minConfidence: confidence) else { return }
+        let shown = found.filter { !hidden.contains($0.label) }
+        feed.lock.withLock { feed.objects = shown }
     }
 
     // MARK: Labelling

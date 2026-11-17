@@ -7,30 +7,25 @@ struct SettingsView: View {
             SecuritySettings().tabItem { Label("Security", systemImage: "shield.lefthalf.filled") }
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
         }
-        .frame(width: 600, height: 460)
+        .frame(width: 600, height: 500)
     }
 }
 
 private struct CameraSettings: View {
     @EnvironmentObject private var model: AppModel
     @State private var selection: NetworkCamera.ID?
-    @State private var editing: Draft?
-
-    private struct Draft: Identifiable {
-        let camera: NetworkCamera
-        let isNew: Bool
-        var id: NetworkCamera.ID { camera.id }
-    }
+    @State private var editing: CameraDraft?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Network cameras are shown beside this Mac's camera and analysed for faces with the capacity left over.")
+            Text(model.securityMode ? "These cameras are watched in Security mode."
+                 : "These cameras are watched in Security mode. FaceRec is in This Mac mode now, so they are not connected.")
                 .font(.callout).foregroundStyle(.secondary)
 
             List(selection: $selection) {
                 ForEach(model.networkCameras) { camera in
                     HStack(spacing: 10) {
-                        StatusDot(feed: model.feeds.first { $0.id == camera.id.uuidString }, enabled: camera.enabled)
+                        StatusDot(feed: model.feeds.first { $0.id == camera.id.uuidString }, enabled: camera.enabled && model.securityMode)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(camera.name).font(.body.weight(.medium))
                             Text(StreamSources.masked(camera.address)).font(.caption).foregroundStyle(.secondary)
@@ -58,7 +53,7 @@ private struct CameraSettings: View {
 
             HStack {
                 Button("Add Camera…", systemImage: "plus") {
-                    editing = Draft(camera: NetworkCamera(name: "", address: ""), isNew: true)
+                    editing = CameraDraft(camera: NetworkCamera(name: "", address: ""), isNew: true)
                 }
                 Button("Edit…") { if let camera = selected { edit(camera) } }.disabled(selected == nil)
                 Button("Remove", role: .destructive) { if let selection { remove(selection) } }.disabled(selected == nil)
@@ -67,18 +62,14 @@ private struct CameraSettings: View {
         }
         .padding(20)
         .sheet(item: $editing) { draft in
-            CameraEditor(camera: draft.camera, isNew: draft.isNew) { saved in
-                var cameras = model.networkCameras
-                if let index = cameras.firstIndex(where: { $0.id == saved.id }) { cameras[index] = saved } else { cameras.append(saved) }
-                model.setNetworkCameras(cameras)
-            }
+            CameraEditorSheet(draft: draft) { model.saveCamera($0) }
         }
     }
 
     private var selected: NetworkCamera? { model.networkCameras.first { $0.id == selection } }
 
     private func edit(_ camera: NetworkCamera) {
-        editing = Draft(camera: camera, isNew: false)
+        editing = CameraDraft(camera: camera, isNew: false)
     }
 
     private func setEnabled(_ camera: NetworkCamera, _ enabled: Bool) {
@@ -120,77 +111,27 @@ private struct StatusDot: View {
     }
 }
 
-private struct CameraEditor: View {
-    @State var camera: NetworkCamera
-    let isNew: Bool
-    let save: (NetworkCamera) -> Void
-    @EnvironmentObject private var model: AppModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var testResult: String?
-    @State private var testing = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(isNew ? "Add a network camera" : "Edit camera").font(.title3.weight(.semibold))
-            Form {
-                TextField("Name", text: $camera.name, prompt: Text("Front door"))
-                TextField("Address", text: $camera.address, prompt: Text("rtsp://user:password@192.168.1.20:554/stream1"))
-                    .autocorrectionDisabled()
-            }
-            Text("Works with RTSP cameras (H.264 or H.265), Motion-JPEG streams over HTTP, and still-picture addresses. If the camera needs signing in, put the user name and password in the address. Use the camera's lower-resolution stream if it has one.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
-                Button("Test Connection") {
-                    testing = true
-                    testResult = nil
-                    Task {
-                        testResult = await model.testCamera(camera.address)
-                        testing = false
-                    }
-                }
-                .disabled(testing || address.isEmpty)
-                if testing { ProgressView().controlSize(.small) }
-                if let testResult {
-                    Text(testResult).font(.callout).foregroundStyle(testResult.hasPrefix("Connected") ? .green : .orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(isNew ? "Add" : "Save") {
-                    var saved = camera
-                    saved.address = address
-                    saved.name = camera.name.trimmingCharacters(in: .whitespaces).isEmpty
-                        ? (URL(string: address)?.host ?? "Camera") : camera.name.trimmingCharacters(in: .whitespaces)
-                    save(saved)
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(StreamSources.make(address) == nil)
-            }
-        }
-        .padding(20)
-        .frame(width: 480)
-    }
-
-    private var address: String { camera.address.trimmingCharacters(in: .whitespacesAndNewlines) }
-}
-
 private struct SecuritySettings: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
         Form {
-            Section {
-                Toggle("Security mode", isOn: $model.securityMode)
-                Text("Watches network cameras only. This Mac's own camera is switched off and no camera permission is needed.")
+            Section("Mode") {
+                Picker("Use FaceRec for", selection: Binding(get: { model.securityMode }, set: { model.setMode(security: $0) })) {
+                    Label("This Mac", systemImage: "laptopcomputer").tag(false)
+                    Label("Security", systemImage: "shield.lefthalf.filled").tag(true)
+                }
+                .pickerStyle(.segmented)
+                Text(model.securityMode
+                     ? "Security: network cameras are watched in a grid, everyone who appears is logged, and alerts can be sent."
+                     : "This Mac: recognises people in front of this Mac's camera. Network cameras are not connected.")
                     .font(.caption).foregroundStyle(.secondary)
+                Toggle("Also watch this Mac's camera in Security mode", isOn: $model.includeMacCamera)
             }
             Section("Alerts") {
                 Toggle("Notify me when an unknown person appears", isOn: $model.notifyUnknown)
                 Toggle("Notify me when someone I have named appears", isOn: $model.notifyKnown)
-                Text("Everyone who appears on a network camera is added to the Events list with a picture, whether or not alerts are on. The same person on the same camera is logged at most once every 2 minutes (unknown people: every 30 seconds).")
+                Text("Everyone who appears on a network camera is added to the History list with a picture, whether or not alerts are on. The same person on the same camera is logged at most once every 2 minutes (unknown people: every 30 seconds).")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {

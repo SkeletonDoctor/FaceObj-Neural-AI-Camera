@@ -8,6 +8,8 @@ struct Sighting: Sendable {
     var name: String?          // nil = nobody the app knows
     var confidence: Float
     var crop: FaceCrop?
+    /// The views of the face collected so far, so an unknown person can be added to People later.
+    var samples: [FaceSample] = []
 }
 
 /// A sighting with the camera and frame it came from, as the engine hands it to the app.
@@ -18,7 +20,7 @@ struct SightingReport: Sendable {
     var date: Date
 }
 
-/// One line of the security log.
+/// One line of the face history.
 struct SecurityEvent: Codable, Identifiable, Equatable {
     var id = UUID()
     var date: Date
@@ -26,11 +28,35 @@ struct SecurityEvent: Codable, Identifiable, Equatable {
     var name: String?          // nil = unknown person
     var face: String?          // file names inside the events folder
     var scene: String?
+    var samples: String?       // the face's views, kept for unknown people so they can be named later
+    var added: Bool?           // true once the user added this person to People from the history
 }
 
-/// The security log: who appeared on which network camera and when, each with
-/// a face picture and a snapshot of the scene. Kept beside the face database,
-/// newest first, limited to the most recent `limit` events.
+/// Face views packed as raw numbers: count, then per view quality, yaw, pitch and the embedding.
+enum SampleFile {
+    static func encode(_ samples: [FaceSample]) -> Data {
+        var numbers: [Float32] = [Float32(samples.count), Float32(samples.first?.embedding.count ?? 0)]
+        for s in samples { numbers += [s.quality, s.yaw, s.pitch] + s.embedding }
+        return numbers.withUnsafeBufferPointer { Data(buffer: $0) }
+    }
+
+    static func decode(_ data: Data) -> [FaceSample] {
+        let numbers = data.withUnsafeBytes { Array($0.bindMemory(to: Float32.self)) }
+        guard numbers.count >= 2 else { return [] }
+        let count = Int(numbers[0]), size = Int(numbers[1])
+        guard count > 0, size > 0, numbers.count == 2 + count * (size + 3) else { return [] }
+        return (0..<count).map { i in
+            let start = 2 + i * (size + 3)
+            return FaceSample(embedding: Array(numbers[(start + 3)..<(start + 3 + size)]),
+                              quality: numbers[start], yaw: numbers[start + 1], pitch: numbers[start + 2])
+        }
+    }
+}
+
+/// The face history: who appeared on which camera and when, each with a face
+/// picture and a snapshot of the scene. Unknown faces keep their views so they
+/// can be added to People afterwards. Kept beside the face database, newest
+/// first, limited to the most recent `limit` entries.
 @MainActor
 final class EventLog: ObservableObject {
     static let limit = 300
@@ -54,7 +80,7 @@ final class EventLog: ObservableObject {
     func record(_ report: SightingReport, camera: String) async -> SecurityEvent {
         var event = SecurityEvent(date: report.date, camera: camera, name: report.sighting.name)
         let id = event.id.uuidString
-        let files: (face: String?, scene: String?) = await Task.detached(priority: .utility) {
+        let files: (face: String?, scene: String?, samples: String?) = await Task.detached(priority: .utility) {
             try? FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
             func write(_ buffer: CVPixelBuffer, _ name: String, maxWidth: CGFloat) -> String? {
                 var image = CIImage(cvPixelBuffer: buffer)
@@ -69,11 +95,18 @@ final class EventLog: ObservableObject {
                 else { return nil }
                 return name
             }
+            var samples: String?
+            if report.sighting.name == nil, !report.sighting.samples.isEmpty,
+               (try? SampleFile.encode(report.sighting.samples)
+                    .write(to: Self.directory.appendingPathComponent("\(id)-samples.bin"), options: .atomic)) != nil {
+                samples = "\(id)-samples.bin"
+            }
             return (report.sighting.crop.flatMap { write($0.buffer, "\(id)-face.jpg", maxWidth: 160) },
-                    write(report.frame.buffer, "\(id)-scene.jpg", maxWidth: 960))
+                    write(report.frame.buffer, "\(id)-scene.jpg", maxWidth: 960), samples)
         }.value
         event.face = files.face
         event.scene = files.scene
+        event.samples = files.samples
 
         events.insert(event, at: 0)
         for old in events.dropFirst(Self.limit) { removeFiles(old) }
@@ -89,6 +122,29 @@ final class EventLog: ObservableObject {
         return NSImage(data: data)
     }
 
+    /// The stored views of an unknown face.
+    func samples(_ event: SecurityEvent) -> [FaceSample] {
+        guard let url = url(event.samples), let data = try? Data(contentsOf: url) else { return [] }
+        return SampleFile.decode(data)
+    }
+
+    /// Marks history entries as a named person: the one the user picked, and any
+    /// other unknown entries that `matches` says are the same person.
+    func name(_ id: SecurityEvent.ID, as name: String, matches: ([FaceSample]) -> Bool) -> Int {
+        var renamed = 0
+        for i in events.indices where events[i].name == nil {
+            let picked = events[i].id == id
+            guard picked || matches(samples(events[i])) else { continue }
+            events[i].name = name
+            if picked { events[i].added = true }
+            if let url = url(events[i].samples) { try? FileManager.default.removeItem(at: url) }
+            events[i].samples = nil
+            renamed += 1
+        }
+        save()
+        return renamed
+    }
+
     func clear() {
         events.forEach(removeFiles)
         events = []
@@ -96,7 +152,7 @@ final class EventLog: ObservableObject {
     }
 
     private func removeFiles(_ event: SecurityEvent) {
-        for file in [event.face, event.scene] {
+        for file in [event.face, event.scene, event.samples] {
             if let url = url(file) { try? FileManager.default.removeItem(at: url) }
         }
     }
